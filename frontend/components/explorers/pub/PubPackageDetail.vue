@@ -198,10 +198,21 @@ watch(() => [props.registry.slug, props.packageName], loadDetail)
             <button
               type="button"
               class="inline-flex items-center justify-between gap-3 rounded-lg border bg-slate-900 text-slate-100 px-3.5 py-2 text-xs font-mono hover:bg-slate-800 transition-colors"
+              title="Copy the Dart install command with PUB_HOSTED_URL preset"
               @click="copySnippet('add', `PUB_HOSTED_URL=${hostedUrl} dart pub add ${detail.package.name}`)"
             >
               <span>dart pub add {{ detail.package.name }}</span>
               <Check v-if="copiedKey === 'add'" class="h-3.5 w-3.5 text-emerald-400" />
+              <Copy v-else class="h-3.5 w-3.5 text-slate-400" />
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center justify-between gap-3 rounded-lg border bg-slate-900 text-slate-100 px-3.5 py-2 text-xs font-mono hover:bg-slate-800 transition-colors"
+              title="Copy the Flutter install command with PUB_HOSTED_URL preset"
+              @click="copySnippet('add-flutter', `PUB_HOSTED_URL=${hostedUrl} flutter pub add ${detail.package.name}`)"
+            >
+              <span>flutter pub add {{ detail.package.name }}</span>
+              <Check v-if="copiedKey === 'add-flutter'" class="h-3.5 w-3.5 text-emerald-400" />
               <Copy v-else class="h-3.5 w-3.5 text-slate-400" />
             </button>
           </div>
@@ -282,7 +293,42 @@ watch(() => [props.registry.slug, props.packageName], loadDetail)
 
             <div>
               <h2 class="text-base font-semibold text-foreground">
-                {{ registry.visibility === 'private' ? '3.' : '2.' }} Add to pubspec.yaml
+                {{ registry.visibility === 'private' ? '3.' : '2.' }} Add the dependency
+              </h2>
+              <p class="text-xs text-muted-foreground mt-1">
+                Works for both toolchains — pick the command matching your project:
+              </p>
+              <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="relative rounded-lg bg-slate-900 p-3.5 pr-10 font-mono text-xs text-slate-100">
+                  <code>dart pub add {{ detail.package.name }}</code>
+                  <button
+                    type="button"
+                    class="absolute right-2.5 top-2.5 rounded p-1 text-slate-400 hover:text-white"
+                    :aria-label="`Copy dart pub add ${detail.package.name}`"
+                    @click="copySnippet('install-dart', `PUB_HOSTED_URL=${hostedUrl} dart pub add ${detail.package.name}`)"
+                  >
+                    <Check v-if="copiedKey === 'install-dart'" class="h-3.5 w-3.5 text-emerald-400" />
+                    <Copy v-else class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div class="relative rounded-lg bg-slate-900 p-3.5 pr-10 font-mono text-xs text-slate-100">
+                  <code>flutter pub add {{ detail.package.name }}</code>
+                  <button
+                    type="button"
+                    class="absolute right-2.5 top-2.5 rounded p-1 text-slate-400 hover:text-white"
+                    :aria-label="`Copy flutter pub add ${detail.package.name}`"
+                    @click="copySnippet('install-flutter', `PUB_HOSTED_URL=${hostedUrl} flutter pub add ${detail.package.name}`)"
+                  >
+                    <Check v-if="copiedKey === 'install-flutter'" class="h-3.5 w-3.5 text-emerald-400" />
+                    <Copy v-else class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h2 class="text-base font-semibold text-foreground">
+                {{ registry.visibility === 'private' ? '4.' : '3.' }} Or pin it in pubspec.yaml
               </h2>
               <p class="text-xs text-muted-foreground mt-1">
                 Explicitly pin this hosted repository in your project's <code class="font-mono">pubspec.yaml</code>:
