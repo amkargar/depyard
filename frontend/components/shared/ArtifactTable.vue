@@ -2,10 +2,12 @@
 import { Trash2, ExternalLink } from 'lucide-vue-next'
 import type { ArtifactDescriptor } from '~/types/registry'
 import { formatBytes, formatRelative } from '~/utils/format'
+import { getRegistryExplorer } from '~/utils/registryExplorers'
 
-defineProps<{
+const props = defineProps<{
   items: ArtifactDescriptor[]
   registrySlug: string
+  registryType?: string
   canDelete: boolean
   loading?: boolean
 }>()
@@ -13,6 +15,11 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'delete', artifact: ArtifactDescriptor): void
 }>()
+
+const hasDetailPage = computed(() => {
+  if (!props.registryType) return true
+  return Boolean(getRegistryExplorer(props.registryType)?.detail)
+})
 </script>
 
 <template>
@@ -40,7 +47,7 @@ const emit = defineEmits<{
         </tr>
         <tr v-for="item in items" :key="item.id" class="hover:bg-muted/20 transition-colors">
           <td class="px-4 py-3">
-            <div class="font-medium text-foreground">{{ item.name }}</div>
+            <div class="font-medium text-foreground break-all">{{ item.name }}</div>
             <div v-if="item.description" class="text-xs text-muted-foreground line-clamp-1 max-w-xs">
               {{ item.description }}
             </div>
@@ -64,12 +71,23 @@ const emit = defineEmits<{
           <td class="px-4 py-3 text-right">
             <div class="inline-flex items-center gap-1">
               <NuxtLink
+                v-if="hasDetailPage"
                 :to="`/explore/${registrySlug}/packages/${encodeURIComponent(item.name)}`"
                 class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                 title="View in Explorer"
               >
                 <ExternalLink class="h-3.5 w-3.5" />
               </NuxtLink>
+              <a
+                v-else
+                :href="`/r/${registrySlug}/${item.name}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Download Artifact"
+              >
+                <ExternalLink class="h-3.5 w-3.5" />
+              </a>
               <button
                 v-if="canDelete"
                 type="button"
