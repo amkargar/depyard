@@ -2,15 +2,24 @@ package flutter
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
 	"github.com/amkargar/mirror-registry/backend/internal/upstream"
 )
+
+// baseWatchInterval controls how often a Flutter registry re-checks the platform base settings
+// for live inheritance. Only a fingerprint comparison runs per tick; a reload happens on change.
+const baseWatchInterval = 3 * time.Second
 
 // Capabilities declares the capabilities genuinely supported by Flutter Storage mirrors.
 func Capabilities() registry.Capabilities {
@@ -38,12 +47,23 @@ func Registration(store MetadataStore) registry.Registration {
 		DefaultUpstreamURL: DefaultUpstreamURL,
 		Capabilities:       Capabilities(),
 		ConfigHints:        ConfigHints(),
+		BaseConfig:         BaseSpec(),
 		ValidateConfig: func(cfg map[string]any) error {
 			_, err := ParseConfig(cfg)
 			return err
 		},
-		Create: func(_ context.Context, inst *registry.Instance, deps registry.ServiceDeps) (registry.Registry, error) {
-			return New(inst, deps, store)
+		Create: func(ctx context.Context, inst *registry.Instance, deps registry.ServiceDeps) (registry.Registry, error) {
+			fl, err := New(inst, deps, store)
+			if err != nil {
+				return nil, err
+			}
+			// Live inheritance: re-resolve the effective config against the current platform base
+			// settings on every (re)activation, and refresh in place when they change.
+			if deps.Defaults != nil {
+				fl.refreshBase()
+				fl.watchBase()
+			}
+			return fl, nil
 		},
 	}
 }
@@ -51,14 +71,22 @@ func Registration(store MetadataStore) registry.Registration {
 // FlutterRegistry implements a self-hosted FLUTTER_STORAGE_BASE_URL mirror using shared core services.
 type FlutterRegistry struct {
 	inst  *registry.Instance
-	cfg   Config
 	deps  registry.ServiceDeps
 	store MetadataStore
 	mux   *http.ServeMux
+
+	// cfg is the effective (base-merged) configuration. It is swapped atomically because live
+	// inheritance refreshes it when the platform base settings change.
+	cfg atomic.Pointer[Config]
+
+	refreshMu  sync.Mutex
+	lastBaseFP string
+	stopWatch  chan struct{}
+	closeOnce  sync.Once
 }
 
 func New(inst *registry.Instance, deps registry.ServiceDeps, store MetadataStore) (*FlutterRegistry, error) {
-	cfg, err := ParseConfig(inst.Config)
+	cfg, err := ParseConfig(EffectiveConfig(inst.Config, deps.Defaults, nil))
 	if err != nil {
 		return nil, err
 	}
@@ -67,13 +95,88 @@ func New(inst *registry.Instance, deps registry.ServiceDeps, store MetadataStore
 	}
 	r := &FlutterRegistry{
 		inst:  inst.Clone(),
-		cfg:   cfg,
 		deps:  deps,
 		store: store,
 		mux:   http.NewServeMux(),
 	}
+	r.cfg.Store(&cfg)
 	r.registerRoutes()
 	return r, nil
+}
+
+// config returns the currently effective configuration.
+func (r *FlutterRegistry) config() Config {
+	if c := r.cfg.Load(); c != nil {
+		return *c
+	}
+	return DefaultConfig()
+}
+
+// refreshBase re-resolves the effective config from the current platform base settings.
+// It is a no-op when live inheritance is disabled or nothing changed.
+func (r *FlutterRegistry) refreshBase() {
+	if r.deps.Defaults == nil {
+		return
+	}
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+
+	base, err := r.deps.Defaults.BaseConfig(context.Background(), RegistryType)
+	if err != nil || len(base) == 0 {
+		return
+	}
+	fp := fingerprintBase(base)
+	if fp == r.lastBaseFP {
+		return
+	}
+	merged := MergeBase(base, r.inst.Config)
+	cfg, err := ParseConfig(merged)
+	if err != nil {
+		return
+	}
+	r.cfg.Store(&cfg)
+	r.lastBaseFP = fp
+}
+
+// watchBase polls the platform base settings and refreshes this registry in place when they change.
+// Instances are closed by the manager on reload, so the watcher stops with the registry.
+func (r *FlutterRegistry) watchBase() {
+	if r.deps.Defaults == nil || r.stopWatch != nil {
+		return
+	}
+	stop := make(chan struct{})
+	r.stopWatch = stop
+	go func() {
+		ticker := time.NewTicker(baseWatchInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				r.refreshBase()
+			}
+		}
+	}()
+}
+
+// Close stops background watchers when the manager reloads or deletes this registry.
+func (r *FlutterRegistry) Close() error {
+	r.closeOnce.Do(func() {
+		if r.stopWatch != nil {
+			close(r.stopWatch)
+		}
+	})
+	return nil
+}
+
+func fingerprintBase(base map[string]any) string {
+	b, err := json.Marshal(base)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func (r *FlutterRegistry) Type() string {
@@ -96,8 +199,8 @@ func (r *FlutterRegistry) Handler() http.Handler {
 }
 
 func (r *FlutterRegistry) upstreamTimeout() time.Duration {
-	if r.cfg.UpstreamTimeoutSeconds > 0 {
-		return time.Duration(r.cfg.UpstreamTimeoutSeconds) * time.Second
+	if r.config().UpstreamTimeoutSeconds > 0 {
+		return time.Duration(r.config().UpstreamTimeoutSeconds) * time.Second
 	}
 	return defaultUpstreamTimeoutSecs * time.Second
 }
@@ -105,34 +208,34 @@ func (r *FlutterRegistry) upstreamTimeout() time.Duration {
 // upstreamForPath resolves the upstream base URL for a clean artifact path, honoring per-category
 // download_storage overrides while falling back to the registry-level upstream URL.
 func (r *FlutterRegistry) upstreamForPath(cleanPath string) string {
-	channel, ok := r.cfg.resolveCategory(cleanPath)
+	channel, ok := r.config().resolveCategory(cleanPath)
 	if !ok {
 		return strings.TrimRight(r.inst.UpstreamURL, "/")
 	}
-	return r.cfg.categoryUpstreamURL(channel, r.inst.UpstreamURL)
+	return r.config().categoryUpstreamURL(channel, r.inst.UpstreamURL)
 }
 
 // manifestTTLForPath resolves the mutable-manifest TTL for a path, honoring per-category overrides.
 func (r *FlutterRegistry) manifestTTLForPath(cleanPath string) int {
-	channel, ok := r.cfg.resolveCategory(cleanPath)
+	channel, ok := r.config().resolveCategory(cleanPath)
 	if !ok {
-		return r.cfg.ManifestTTLSeconds
+		return r.config().ManifestTTLSeconds
 	}
-	return r.cfg.categoryManifestTTL(channel)
+	return r.config().categoryManifestTTL(channel)
 }
 
 // pathRewritesManifests reports whether Flutter release manifests fetched through this path
 // should have their base_url rewritten to point at this mirror.
 func (r *FlutterRegistry) pathRewritesManifests(cleanPath string) bool {
-	channel, ok := r.cfg.resolveCategory(cleanPath)
+	channel, ok := r.config().resolveCategory(cleanPath)
 	if !ok {
-		return r.cfg.RewriteManifestURLs
+		return r.config().RewriteManifestURLs
 	}
-	return r.cfg.categoryRewriteManifests(channel)
+	return r.config().categoryRewriteManifests(channel)
 }
 
 func (r *FlutterRegistry) isPathAllowed(cleanPath string) bool {
-	for _, prefix := range r.cfg.AllowedPrefixes {
+	for _, prefix := range r.config().AllowedPrefixes {
 		if prefix == "*" || cleanPath == prefix || strings.HasPrefix(cleanPath, prefix+"/") {
 			return true
 		}
@@ -244,10 +347,10 @@ func (r *FlutterRegistry) MatchesCompatPath(p string) bool {
 	if trimmed == "" {
 		return false
 	}
-	if _, disabled := r.cfg.disabledCategoryForPath(trimmed); disabled {
+	if _, disabled := r.config().disabledCategoryForPath(trimmed); disabled {
 		return false
 	}
-	for _, prefix := range r.cfg.AllowedPrefixes {
+	for _, prefix := range r.config().AllowedPrefixes {
 		if prefix == "*" {
 			// Never match wildcard on root compat route to avoid shadowing UI/API routes.
 			continue

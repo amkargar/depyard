@@ -97,6 +97,22 @@ func (m *Manager) GetType(regType string) (Registration, bool) {
 	return r, ok
 }
 
+// ValidateTypeConfig validates a config map for a registry type using that type's own validator.
+// It lets core/admin code validate ecosystem configs without importing concrete implementations.
+func (m *Manager) ValidateTypeConfig(regType string, cfg map[string]any) error {
+	reg, ok := m.GetType(regType)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrTypeNotRegistered, regType)
+	}
+	if reg.ValidateConfig == nil {
+		return nil
+	}
+	if err := reg.ValidateConfig(cfg); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	return nil
+}
+
 // LoadAll hydrates all persisted registry instances at startup.
 // Instances whose type is not compiled into this binary are kept persisted in disabled/inactive state.
 func (m *Manager) LoadAll(ctx context.Context) error {

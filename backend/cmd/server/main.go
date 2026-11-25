@@ -121,7 +121,10 @@ func main() {
 		logger.Info("bootstrapped initial admin user", "username", cfg.AdminUsername)
 	}
 
-	// Composition root: register compiled registry types
+	// Composition root: register compiled registry types.
+	// liveDefaults is installed once the admin handler exists (see below) so registries can follow
+	// the platform base settings without an import cycle between admin and registry.
+	liveDefaults := &admin.LiveDefaults{}
 	deps := registry.ServiceDeps{
 		Storage:  storageSvc,
 		Cache:    cacheCoord,
@@ -129,6 +132,7 @@ func main() {
 		Auth:     authSvc,
 		Metrics:  metricsCol,
 		Audit:    auditSvc,
+		Defaults: liveDefaults,
 	}
 	regManager := registry.NewManager(instanceStore, deps)
 
@@ -248,6 +252,13 @@ func main() {
 		defaultSettings,
 	)
 	adminHandler.SetUpstreamClient(upstreamClient)
+	liveDefaults.Set(func(ctx context.Context, registryType string) (map[string]any, error) {
+		st, err := adminHandler.GetSettings(ctx)
+		if err != nil || st == nil {
+			return nil, err
+		}
+		return st.BaseConfig(ctx, registryType)
+	})
 
 	srv := server.New(server.Options{
 		Manager:               regManager,

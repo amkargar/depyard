@@ -8,8 +8,18 @@ import {
   CheckCircle2,
   XCircle,
   ShieldAlert,
+  HardDriveDownload,
+  ListChecks,
+  RotateCcw,
+  Layers,
+  RefreshCw,
 } from 'lucide-vue-next'
-import type { PlatformSettings, UpstreamHealth } from '~/types/registry'
+import type {
+  PlatformSettings,
+  UpstreamHealth,
+  BaseConfigImpact,
+  BaseConfigRegistryImpact,
+} from '~/types/registry'
 
 definePageMeta({ layout: 'admin' })
 
@@ -44,6 +54,7 @@ async function loadSettings() {
   try {
     const res = await apiFetch<PlatformSettings>('/api/admin/settings')
     Object.assign(form, res)
+    hydrateFlutterBase(res)
   } catch (err: any) {
     errorMsg.value = err?.message || 'Failed to load settings'
   } finally {
@@ -70,6 +81,8 @@ async function handleSave() {
         upstream_insecure_skip_verify: form.upstream_insecure_skip_verify,
         default_pub_upstream_url: form.default_pub_upstream_url.trim(),
         default_flutter_storage_url: form.default_flutter_storage_url.trim(),
+        default_flutter_storage_config: { ...flutterBase },
+        flutter_base_config_mode: flutterBaseMode.value,
       }),
     })
     Object.assign(form, res)
@@ -103,6 +116,146 @@ async function handleTestUpstream(overrideUrl?: string) {
   } finally {
     testing.value = false
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Base Flutter Storage settings (platform-wide defaults + inheritance)
+ * ------------------------------------------------------------------ */
+
+/** Editable copy of the base Flutter config; persisted with the rest of the settings form. */
+const flutterBase = reactive<Record<string, any>>({})
+const flutterBaseMode = ref<'defaults' | 'inherit'>('defaults')
+
+const applyOpen = ref(false)
+const applyMode = ref<'fill-missing' | 'overwrite'>('fill-missing')
+const applyFields = ref<string[]>([])
+const applyScope = ref<string[]>([])
+const applyPreview = ref<BaseConfigImpact | null>(null)
+const applyBusy = ref(false)
+const applyError = ref('')
+const applyResult = ref<BaseConfigImpact | null>(null)
+
+const BASE_FIELD_LABELS: Record<string, string> = {
+  storage_name: 'Storage name',
+  releases_base_url: 'Release manifest base URL',
+  registry_ttl_seconds: 'Version registry TTL',
+  manifest_ttl_seconds: 'Manifest TTL',
+  rewrite_manifest_urls: 'Rewrite manifest base_url',
+  serve_stale_on_error: 'Serve stale on error',
+  upstream_timeout_seconds: 'Upstream timeout',
+  max_artifact_size_bytes: 'Max artifact size',
+  download_storage: 'Storage categories',
+  allowed_prefixes: 'Allowed prefixes',
+  upstream_url: 'Default upstream URL',
+}
+
+const baseFieldChoices = computed(() => {
+  const keys = new Set<string>(Object.keys(flutterBase))
+  return [...keys]
+    .filter((k) => k !== 'download_storage_mode')
+    .map((k) => ({ key: k, label: BASE_FIELD_LABELS[k] || k }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+})
+
+function hydrateFlutterBase(settings: PlatformSettings) {
+  for (const key of Object.keys(flutterBase)) delete flutterBase[key]
+  Object.assign(flutterBase, settings.default_flutter_storage_config || {})
+  // Preserve the exact "unset" state: an empty map means "no base configured".
+  if (!flutterBase.download_storage && Array.isArray(settings.default_flutter_storage_config?.download_storage)) {
+    flutterBase.download_storage = settings.default_flutter_storage_config!.download_storage
+  }
+  flutterBaseMode.value = settings.flutter_base_config_mode === 'inherit' ? 'inherit' : 'defaults'
+}
+
+function resetFlutterBase() {
+  for (const key of Object.keys(flutterBase)) delete flutterBase[key]
+  flutterBaseMode.value = 'defaults'
+  savedMsg.value = ''
+}
+
+async function previewApply() {
+  applyBusy.value = true
+  applyError.value = ''
+  applyResult.value = null
+  try {
+    applyPreview.value = await apiFetch<BaseConfigImpact>(
+      '/api/admin/settings/base-config/flutter/impact',
+    )
+  } catch (err: any) {
+    applyError.value = err?.message || 'Failed to preview the base settings impact'
+  } finally {
+    applyBusy.value = false
+  }
+}
+
+async function runApply(dryRun: boolean) {
+  applyBusy.value = true
+  applyError.value = ''
+  try {
+    const res = await apiFetch<BaseConfigImpact>('/api/admin/settings/base-config/flutter/apply', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode: applyMode.value,
+        fields: applyFields.value,
+        registry_ids: applyScope.value,
+        dry_run: dryRun,
+      }),
+    })
+    if (dryRun) {
+      applyPreview.value = res
+    } else {
+      applyResult.value = res
+      applyPreview.value = res
+      savedMsg.value = `Applied base Flutter Storage settings to ${res.applied} registr${res.applied === 1 ? 'y' : 'ies'}${
+        res.failed ? ` (${res.failed} failed)` : ''
+      }.`
+    }
+  } catch (err: any) {
+    applyError.value = err?.message || 'Failed to apply base settings'
+  } finally {
+    applyBusy.value = false
+  }
+}
+
+function openApplyDialog() {
+  applyOpen.value = true
+  applyMode.value = 'fill-missing'
+  applyFields.value = []
+  applyScope.value = []
+  applyPreview.value = null
+  applyResult.value = null
+  applyError.value = ''
+  void previewApply()
+}
+
+function toggleApplyField(key: string) {
+  applyFields.value = applyFields.value.includes(key)
+    ? applyFields.value.filter((k) => k !== key)
+    : [...applyFields.value, key]
+}
+
+function changeCountFor(reg: BaseConfigRegistryImpact): number {
+  return reg.changes?.length ?? 0
+}
+
+const applyTotals = computed(() => {
+  const regs = applyPreview.value?.registries || []
+  const changed = regs.filter((r) => changeCountFor(r) > 0).length
+  const fields = regs.reduce((n, r) => n + changeCountFor(r), 0)
+  return { registries: regs.length, changed, fields }
+})
+
+function formatApplyValue(v: unknown): string {
+  if (v === undefined || v === null || v === '') return '—'
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (Array.isArray(v)) {
+    if (v.length && typeof v[0] === 'object') {
+      return v.map((c: any) => c.name).filter(Boolean).join(', ') || `${v.length} entries`
+    }
+    return v.join(', ')
+  }
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
 }
 
 onMounted(loadSettings)
@@ -255,6 +408,75 @@ onMounted(loadSettings)
         </div>
       </UiCard>
 
+      <!-- Base Flutter Storage settings -->
+      <UiCard class="p-6 space-y-4">
+        <div class="flex flex-wrap items-start justify-between gap-3 border-b pb-3">
+          <div class="flex items-center gap-2">
+            <HardDriveDownload class="h-4 w-4 text-primary" />
+            <div>
+              <h2 class="text-sm font-semibold">Base Flutter Storage Settings</h2>
+              <p class="text-xs text-muted-foreground">
+                Platform-wide defaults for every Flutter Storage registry. Used to seed new registries, to push
+                into existing ones, and — in inheritance mode — for any field a registry leaves unset.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <UiButton
+              type="button"
+              variant="outline"
+              size="sm"
+              :disabled="applyBusy"
+              @click="openApplyDialog"
+            >
+              <ListChecks class="h-4 w-4" />
+              Apply to existing…
+            </UiButton>
+            <UiButton type="button" variant="ghost" size="sm" @click="resetFlutterBase">
+              <RotateCcw class="h-4 w-4" />
+              Reset
+            </UiButton>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-4 rounded-lg border border-sky-200/70 bg-sky-50/40 p-4">
+          <div class="flex items-start gap-2.5">
+            <Layers class="h-4 w-4 text-sky-600 mt-0.5 shrink-0" />
+            <div>
+              <div class="text-sm font-medium">Inherit base settings for unset fields</div>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                <template v-if="flutterBaseMode === 'inherit'">
+                  Registries that leave a field unset now follow the base <strong>live</strong> — changing a value
+                  here updates every inheriting registry within seconds, without touching stored configs.
+                </template>
+                <template v-else>
+                  Base settings only seed new registries and are applied explicitly. Existing registries keep
+                  their stored values until you push the base into them.
+                </template>
+              </p>
+            </div>
+          </div>
+          <UiSwitch
+            :model-value="flutterBaseMode === 'inherit'"
+            aria-label="Inherit base Flutter Storage settings for unset fields"
+            @update:model-value="(v: boolean) => (flutterBaseMode = v ? 'inherit' : 'defaults')"
+          />
+        </div>
+
+        <FlutterStorageSettings
+          :config="flutterBase"
+          :upstream-url="form.default_flutter_storage_url"
+          mode="base"
+          @update:config="(next: Record<string, any>) => Object.assign(flutterBase, next)"
+        />
+
+        <p class="text-[11px] text-muted-foreground border-t pt-3">
+          Stored in <code class="font-mono">default_flutter_storage_config</code>. Validated with the same strict
+          parser the runtime uses, so unknown keys, bad URLs, and out-of-range values are rejected on save.
+          {{ baseFieldChoices.length }} field{{ baseFieldChoices.length === 1 ? '' : 's' }} configurable.
+        </p>
+      </UiCard>
+
       <!-- Retention -->
       <UiCard class="p-6 space-y-4">
         <div class="flex items-center gap-2 border-b pb-3">
@@ -284,6 +506,140 @@ onMounted(loadSettings)
         </UiButton>
       </div>
     </form>
+
+    <!-- Apply base settings to existing registries -->
+    <UiDialog
+      :open="applyOpen"
+      title="Apply base Flutter Storage settings"
+      description="Preview exactly which fields change per registry before writing anything."
+      max-width-class="max-w-3xl"
+      @close="applyOpen = false"
+    >
+      <div class="space-y-4">
+        <SharedErrorBanner :message="applyError" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Apply mode</label>
+            <UiSelect v-model="applyMode" @change="runApply(true)">
+              <option value="fill-missing">Fill missing only — never overwrite registry values</option>
+              <option value="overwrite">Overwrite — replace selected fields with base values</option>
+            </UiSelect>
+            <p class="text-[11px] text-muted-foreground">
+              {{
+                applyMode === 'fill-missing'
+                  ? 'Safe default: only keys the registry does not set are written. Storage categories are merged per category.'
+                  : 'Destructive: the selected fields are replaced. Review the diff below before confirming.'
+              }}
+            </p>
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Limit to fields (optional)</label>
+            <div class="rounded-md border bg-background px-3 py-2 max-h-32 overflow-y-auto space-y-1">
+              <label
+                v-for="choice in baseFieldChoices"
+                :key="choice.key"
+                class="flex items-center gap-2 text-xs cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  class="h-3.5 w-3.5 rounded border-input"
+                  :checked="applyFields.includes(choice.key)"
+                  @change="toggleApplyField(choice.key)"
+                />
+                <span>{{ choice.label }}</span>
+              </label>
+              <p v-if="!baseFieldChoices.length" class="text-[11px] text-muted-foreground">
+                No base fields configured yet — save the base settings first.
+              </p>
+            </div>
+            <p class="text-[11px] text-muted-foreground">Nothing selected = every field present in the base.</p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
+            <div class="text-xs font-medium">
+              Impact preview —
+              {{ applyTotals.changed }} of {{ applyTotals.registries }} registr{{ applyTotals.registries === 1 ? 'y' : 'ies' }}
+              affected, {{ applyTotals.fields }} field{{ applyTotals.fields === 1 ? '' : 's' }} to write
+            </div>
+            <UiButton type="button" variant="ghost" size="sm" :disabled="applyBusy" @click="runApply(true)">
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': applyBusy }" />
+              Refresh preview
+            </UiButton>
+          </div>
+
+          <div class="max-h-72 overflow-y-auto divide-y">
+            <div v-if="applyBusy && !applyPreview" class="p-6 text-center text-xs text-muted-foreground">
+              Computing impact…
+            </div>
+            <div
+              v-else-if="!applyPreview?.registries?.length"
+              class="p-6 text-center text-xs text-muted-foreground"
+            >
+              No Flutter Storage registries found.
+            </div>
+            <div v-for="reg in applyPreview?.registries || []" :key="reg.id" class="p-3 space-y-1.5">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-xs font-medium">
+                  {{ reg.name }}
+                  <code class="ml-1 font-mono text-[11px] text-muted-foreground">/r/{{ reg.slug }}</code>
+                </div>
+                <UiBadge
+                  :variant="reg.error ? 'destructive' : changeCountFor(reg) ? 'default' : 'secondary'"
+                  class="text-[10px]"
+                >
+                  {{
+                    reg.error
+                      ? 'error'
+                      : changeCountFor(reg)
+                        ? `${changeCountFor(reg)} change${changeCountFor(reg) === 1 ? '' : 's'}`
+                        : 'in sync'
+                  }}
+                </UiBadge>
+              </div>
+              <p v-if="reg.error" class="text-[11px] text-destructive">{{ reg.error }}</p>
+              <div v-if="changeCountFor(reg)" class="space-y-1">
+                <div
+                  v-for="change in reg.changes"
+                  :key="change.key"
+                  class="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-1 rounded-md bg-muted/30 px-2 py-1 text-[11px]"
+                >
+                  <span class="font-medium">{{ BASE_FIELD_LABELS[change.key] || change.key }}</span>
+                  <span class="font-mono break-all">
+                    <span class="text-muted-foreground">{{ formatApplyValue(change.from) }}</span>
+                    <span class="mx-1 text-muted-foreground">→</span>
+                    <span class="text-foreground">{{ formatApplyValue(change.to) }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="applyMode === 'overwrite'"
+          class="rounded-lg border border-amber-200/70 bg-amber-50/40 px-3 py-2 text-[11px] text-amber-900"
+        >
+          Overwrite mode replaces stored registry values. Cached artifacts are never deleted.
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-end gap-2 w-full">
+          <UiButton type="button" variant="ghost" @click="applyOpen = false">Close</UiButton>
+          <UiButton
+            type="button"
+            :variant="applyMode === 'overwrite' ? 'destructive' : 'default'"
+            :disabled="applyBusy || applyTotals.changed === 0"
+            @click="runApply(false)"
+          >
+            {{ applyBusy ? 'Applying…' : `Apply to ${applyTotals.changed} registr${applyTotals.changed === 1 ? 'y' : 'ies'}` }}
+          </UiButton>
+        </div>
+      </template>
+    </UiDialog>
 
     <!-- Live Upstream Connectivity Tester -->
     <UiCard class="p-6 space-y-4">

@@ -18,6 +18,18 @@ const props = defineProps<{
   upstreamUrl?: string
   /** Compact mode omits descriptions (used inside the create/edit modal). */
   compact?: boolean
+  /**
+   * "instance" (default) edits a single registry's config.
+   * "base" edits the platform-wide default Flutter Storage settings.
+   */
+  mode?: 'instance' | 'base'
+  /**
+   * Field keys supplied by the platform base settings while editing an instance. Values that are
+   * not set here fall back to the base at runtime, so the editor badges them as inherited.
+   */
+  baseKeys?: string[]
+  /** Base config values, used to show what an unset field will resolve to. */
+  baseConfig?: Record<string, any>
 }>()
 
 const emit = defineEmits<{
@@ -180,11 +192,36 @@ function resetCategories() {
   replaceAll(defaults)
 }
 
-const rootCompatHint = computed(() =>
-  props.upstreamUrl
+const isBaseMode = computed(() => props.mode === 'base')
+
+const rootCompatHint = computed(() => {
+  if (isBaseMode.value) {
+    return props.upstreamUrl
+      ? `Categories without their own upstream use the base upstream (${props.upstreamUrl}).`
+      : 'Categories without their own upstream use the base upstream.'
+  }
+  return props.upstreamUrl
     ? `Unset categories inherit the registry upstream (${props.upstreamUrl}).`
-    : 'Unset categories inherit the registry upstream.',
-)
+    : 'Unset categories inherit the registry upstream.'
+})
+
+/** Keys present in config, used to badge which values the base supplies. */
+const configuredKeys = computed(() => new Set(Object.keys(props.config || {}).filter((k) => props.config[k] !== undefined && props.config[k] !== null && props.config[k] !== '')))
+
+function inheritsFromBase(key: string): boolean {
+  if (isBaseMode.value) return false
+  if (!props.baseKeys?.includes(key)) return false
+  return !configuredKeys.value.has(key)
+}
+
+function baseValueHint(key: string): string {
+  const v = props.baseConfig?.[key]
+  if (v === undefined || v === null || v === '') return ''
+  if (Array.isArray(v)) return `${v.length} entries`
+  if (typeof v === 'boolean') return v ? 'enabled' : 'disabled'
+  if (typeof v === 'object') return 'configured'
+  return String(v)
+}
 </script>
 
 <template>
@@ -194,16 +231,29 @@ const rootCompatHint = computed(() =>
       <div class="flex items-center gap-2">
         <ServerCog class="h-4 w-4 text-primary" />
         <div>
-          <h3 class="text-xs font-semibold uppercase tracking-wider">Flutter Storage Identity</h3>
+          <h3 class="text-xs font-semibold uppercase tracking-wider">
+            {{ isBaseMode ? 'Base Flutter Storage Defaults' : 'Flutter Storage Identity' }}
+          </h3>
           <p v-if="!compact" class="text-[11px] text-muted-foreground">
-            Name this FLUTTER_STORAGE_BASE_URL registry and choose where release manifests are fetched from.
+            <template v-if="isBaseMode">
+              Platform-wide defaults for every Flutter Storage registry: seeded into new registries, pushable
+              to existing ones, and (in inheritance mode) applied to any field a registry leaves unset.
+            </template>
+            <template v-else>
+              Name this FLUTTER_STORAGE_BASE_URL registry and choose where release manifests are fetched from.
+            </template>
           </p>
         </div>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
         <div class="space-y-1">
-          <label class="text-xs font-medium">Flutter Storage Name</label>
+          <label class="flex items-center gap-1.5 text-xs font-medium">
+            Flutter Storage Name
+            <UiBadge v-if="inheritsFromBase('storage_name')" variant="secondary" class="text-[10px]">
+              base: {{ baseValueHint('storage_name') }}
+            </UiBadge>
+          </label>
           <UiInput v-model="storageName" placeholder="e.g. Flutter Storage (CN Mirror)" />
           <p v-if="!compact" class="text-[11px] text-muted-foreground">
             Shown in the Admin Console and the public Flutter Storage Explorer.
@@ -211,7 +261,12 @@ const rootCompatHint = computed(() =>
         </div>
 
         <div class="space-y-1">
-          <label class="text-xs font-medium">Release Manifest Base URL (optional)</label>
+          <label class="flex items-center gap-1.5 text-xs font-medium">
+            Release Manifest Base URL (optional)
+            <UiBadge v-if="inheritsFromBase('releases_base_url')" variant="secondary" class="text-[10px]">
+              base: {{ baseValueHint('releases_base_url') }}
+            </UiBadge>
+          </label>
           <UiInput
             v-model="releasesBaseUrl"
             type="url"
@@ -224,12 +279,22 @@ const rootCompatHint = computed(() =>
         </div>
 
         <div class="space-y-1">
-          <label class="text-xs font-medium">Version Registry TTL (seconds)</label>
+          <label class="flex items-center gap-1.5 text-xs font-medium">
+            Version Registry TTL (seconds)
+            <UiBadge v-if="inheritsFromBase('registry_ttl_seconds')" variant="secondary" class="text-[10px]">
+              base: {{ baseValueHint('registry_ttl_seconds') }}
+            </UiBadge>
+          </label>
           <UiInput v-model="registryTtl" type="number" min="0" max="86400" placeholder="900" />
         </div>
 
         <div class="space-y-1">
-          <label class="text-xs font-medium">Default Manifest TTL (seconds)</label>
+          <label class="flex items-center gap-1.5 text-xs font-medium">
+            Default Manifest TTL (seconds)
+            <UiBadge v-if="inheritsFromBase('manifest_ttl_seconds')" variant="secondary" class="text-[10px]">
+              base: {{ baseValueHint('manifest_ttl_seconds') }}
+            </UiBadge>
+          </label>
           <UiInput v-model="manifestTtl" type="number" min="0" max="86400" placeholder="300" />
         </div>
       </div>
