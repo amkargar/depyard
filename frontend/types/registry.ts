@@ -327,5 +327,51 @@ export interface PlatformSettings {
   upstream_insecure_skip_verify: boolean
   default_pub_upstream_url: string
   default_flutter_storage_url: string
+  /** Platform-wide base Flutter Storage config (seeds new registries / feeds inheritance). */
+  default_flutter_storage_config?: Record<string, any>
+  /** "defaults" = seed + manual apply only; "inherit" = unset registry fields follow the base live. */
+  flutter_base_config_mode?: 'defaults' | 'inherit'
   updated_at: string
+}
+
+/** One field's resolution inside a base-config diff. */
+export interface FlutterBaseFieldDiff {
+  key: string
+  effective?: unknown
+  base?: unknown
+  source: 'registry' | 'base' | 'default'
+  can_revert: boolean
+  in_sync: boolean
+  categories?: Array<{
+    name: string
+    source: 'registry' | 'base' | 'registry+base' | 'default'
+    overrides?: string[]
+    inherits?: string[]
+  }>
+}
+
+export interface BaseConfigFieldChange {
+  key: string
+  from?: unknown
+  to: unknown
+}
+
+export interface BaseConfigRegistryImpact {
+  id: string
+  slug: string
+  name: string
+  changes: BaseConfigFieldChange[]
+  skipped?: string[]
+  applied: boolean
+  error?: string
+  field_sources?: FlutterBaseFieldDiff[]
+}
+
+export interface BaseConfigImpact {
+  type: string
+  mode: 'fill-missing' | 'overwrite'
+  dry_run: boolean
+  registries: BaseConfigRegistryImpact[]
+  applied: number
+  failed: number
 }

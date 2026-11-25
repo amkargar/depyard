@@ -98,13 +98,13 @@ func (r *FlutterRegistry) handleListArtifactsAPI(w http.ResponseWriter, req *htt
 		"total":                 total,
 		"page":                  page,
 		"limit":                 limit,
-		"allowed_prefixes":      r.cfg.AllowedPrefixes,
+		"allowed_prefixes":      r.config().AllowedPrefixes,
 		"upstream_url":          r.inst.UpstreamURL,
-		"storage_name":          r.cfg.StorageName,
+		"storage_name":          r.config().StorageName,
 		"releases_base_url":     r.releasesBaseURL(),
-		"registry_ttl_seconds":  r.cfg.RegistryTTLSeconds,
-		"manifest_ttl_seconds":  r.cfg.ManifestTTLSeconds,
-		"rewrite_manifest_urls": r.cfg.RewriteManifestURLs,
+		"registry_ttl_seconds":  r.config().RegistryTTLSeconds,
+		"manifest_ttl_seconds":  r.config().ManifestTTLSeconds,
+		"rewrite_manifest_urls": r.config().RewriteManifestURLs,
 		"download_storage":      r.storageChannels(baseURL),
 		"logical_bytes":         stats.LogicalBytes,
 		"downloads":             downloads,
@@ -124,7 +124,7 @@ func (r *FlutterRegistry) handleVersionRegistryAPI(w http.ResponseWriter, req *h
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", minInt(r.cfg.RegistryTTLSeconds, 60)))
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", minInt(r.config().RegistryTTLSeconds, 60)))
 	if req.Method != http.MethodHead {
 		_ = json.NewEncoder(w).Encode(reg)
 	}
@@ -175,7 +175,7 @@ func (r *FlutterRegistry) handleObject(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	if !r.isPathAllowed(cleanPath) {
-		if cat, disabled := r.cfg.disabledCategoryForPath(cleanPath); disabled {
+		if cat, disabled := r.config().disabledCategoryForPath(cleanPath); disabled {
 			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("storage category %q is disabled on this registry", cat.Name))
 			return
 		}
@@ -223,7 +223,7 @@ func (r *FlutterRegistry) handleObject(w http.ResponseWriter, req *http.Request)
 			return
 		}
 		// Stale-while-error fallback for cached manifests/artifacts when upstream is unreachable
-		if r.cfg.ServeStaleOnError && haveMeta {
+		if r.config().ServeStaleOnError && haveMeta {
 			if served := r.serveFromStorage(w, req, rec, "STALE", manifest); served {
 				return
 			}
@@ -268,7 +268,7 @@ func (r *FlutterRegistry) fetchAndCacheFromUpstream(ctx context.Context, cleanPa
 			RegistryID:       r.inst.ID,
 			ArtifactKey:      cleanPath,
 			Origin:           storage.OriginCached,
-			MaxArtifactBytes: r.cfg.MaxArtifactSizeBytes,
+			MaxArtifactBytes: r.config().MaxArtifactSizeBytes,
 			RegistryQuota:    r.inst.StorageQuotaBytes,
 			Reader:           resp.Body,
 		})

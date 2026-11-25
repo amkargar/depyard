@@ -20,6 +20,7 @@ import type {
   RegistryTypeInfo,
   ArtifactPage,
   ArtifactDescriptor,
+  PlatformSettings,
 } from '~/types/registry'
 import { formatBytes, formatPercent, formatDateTime, copyText } from '~/utils/format'
 
@@ -36,6 +37,75 @@ const reg = ref<RegistryInstance | null>(null)
 const types = ref<RegistryTypeInfo[]>([])
 const editOpen = ref(false)
 const activeTab = ref<'overview' | 'versions' | 'artifacts' | 'cache' | 'danger'>('overview')
+
+/* --- Platform base Flutter Storage settings (for badges + revert-to-base) --- */
+const baseFlutterConfig = ref<Record<string, any>>({})
+const baseFlutterMode = ref<'defaults' | 'inherit'>('defaults')
+const baseLoading = ref(false)
+
+async function loadBaseFlutterSettings() {
+  try {
+    const s = await apiFetch<PlatformSettings>('/api/admin/settings')
+    baseFlutterConfig.value = s.default_flutter_storage_config || {}
+    baseFlutterMode.value = s.flutter_base_config_mode === 'inherit' ? 'inherit' : 'defaults'
+  } catch {
+    // Badges simply won't show; the registry editor stays fully usable.
+  }
+}
+
+/** Fields this registry inherits from the base (only meaningful in inherit mode). */
+const inheritedFields = computed(() => {
+  if (baseFlutterMode.value !== 'inherit') return [] as string[]
+  const cfg = (reg.value?.config || {}) as Record<string, any>
+  return Object.keys(baseFlutterConfig.value).filter(
+    (k) => k !== 'upstream_url' && (cfg[k] === undefined || cfg[k] === null || cfg[k] === ''),
+  )
+})
+
+function inheritsField(key: string): boolean {
+  return inheritedFields.value.includes(key)
+}
+
+function resolvedField(key: string, fallback: any): any {
+  const cfg = (reg.value?.config || {}) as Record<string, any>
+  const own = cfg[key]
+  if (own !== undefined && own !== null && own !== '') return own
+  const base = baseFlutterConfig.value[key]
+  if (base !== undefined && base !== null && base !== '') return base
+  return fallback
+}
+
+/** How a displayed value is sourced, for the "base"/"override" badge. */
+function fieldSource(key: string): 'registry' | 'base' | 'default' {
+  const cfg = (reg.value?.config || {}) as Record<string, any>
+  const own = cfg[key]
+  if (own !== undefined && own !== null && own !== '') return 'registry'
+  if (baseFlutterMode.value === 'inherit') {
+    const base = baseFlutterConfig.value[key]
+    if (base !== undefined && base !== null && base !== '') return 'base'
+  }
+  return 'default'
+}
+
+/** Drop an overridden field so the registry inherits the base value again. */
+async function revertFieldToBase(key: string) {
+  if (!reg.value) return
+  baseLoading.value = true
+  try {
+    const nextConfig = { ...(reg.value.config || {}) }
+    delete nextConfig[key]
+    const updated = await apiFetch<any>(`/api/admin/registries/${reg.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...reg.value, config: nextConfig }),
+    })
+    reg.value = updated
+    noticeMsg.value = `${key} reverts to the base setting.`
+  } catch (err: any) {
+    errorMsg.value = err?.message || `Failed to revert ${key}`
+  } finally {
+    baseLoading.value = false
+  }
+}
 
 // Artifacts tab state
 const artLoading = ref(false)
@@ -209,6 +279,7 @@ async function copyEndpoint() {
 onMounted(async () => {
   await loadRegistry()
   await loadArtifacts()
+  void loadBaseFlutterSettings()
 })
 </script>
 
@@ -421,30 +492,89 @@ onMounted(async () => {
             </UiButton>
           </div>
 
+          <div
+            v-if="baseFlutterMode === 'inherit' && inheritedFields.length"
+            class="rounded-md border border-sky-200/70 bg-sky-50/40 px-3 py-2 text-[11px] text-sky-900"
+          >
+            This registry inherits
+            <strong>{{ inheritedFields.length }}</strong>
+            field{{ inheritedFields.length === 1 ? '' : 's' }} from the platform base Flutter Storage settings
+            (<code class="font-mono">/admin/settings</code>). Setting a field here overrides the base.
+          </div>
+
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
             <div class="rounded-md bg-muted/30 p-2.5">
-              <div class="text-muted-foreground">Storage Name</div>
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-muted-foreground">Storage Name</span>
+                <UiBadge v-if="fieldSource('storage_name') === 'base'" variant="secondary" class="text-[9px]">
+                  base
+                </UiBadge>
+              </div>
               <div class="font-medium text-foreground mt-0.5">
-                {{ reg.config?.storage_name || reg.name }}
+                {{ resolvedField('storage_name', reg.name) }}
+              </div>
+              <button
+                v-if="fieldSource('storage_name') === 'registry' && baseFlutterMode === 'inherit'"
+                type="button"
+                class="text-[10px] text-muted-foreground hover:text-foreground underline"
+                @click="revertFieldToBase('storage_name')"
+              >
+                revert to base
+              </button>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-muted-foreground">Manifest Source</span>
+                <UiBadge v-if="fieldSource('releases_base_url') === 'base'" variant="secondary" class="text-[9px]">
+                  base
+                </UiBadge>
+              </div>
+              <div
+                class="font-mono text-foreground mt-0.5 truncate"
+                :title="resolvedField('releases_base_url', `${reg.upstream_url}/flutter_infra_release/releases`)"
+              >
+                {{ resolvedField('releases_base_url', `${reg.upstream_url}/flutter_infra_release/releases`) }}
               </div>
             </div>
             <div class="rounded-md bg-muted/30 p-2.5">
-              <div class="text-muted-foreground">Manifest Source</div>
-              <div class="font-mono text-foreground mt-0.5 truncate" :title="reg.config?.releases_base_url">
-                {{ reg.config?.releases_base_url || `${reg.upstream_url}/flutter_infra_release/releases` }}
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-muted-foreground">Manifest TTL</span>
+                <UiBadge v-if="fieldSource('manifest_ttl_seconds') === 'base'" variant="secondary" class="text-[9px]">
+                  base
+                </UiBadge>
               </div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ resolvedField('manifest_ttl_seconds', 300) }}s
+              </div>
+              <button
+                v-if="fieldSource('manifest_ttl_seconds') === 'registry' && baseFlutterMode === 'inherit'"
+                type="button"
+                class="text-[10px] text-muted-foreground hover:text-foreground underline"
+                :disabled="baseLoading"
+                @click="revertFieldToBase('manifest_ttl_seconds')"
+              >
+                revert to base
+              </button>
             </div>
             <div class="rounded-md bg-muted/30 p-2.5">
-              <div class="text-muted-foreground">Manifest TTL</div>
-              <div class="font-medium text-foreground mt-0.5">
-                {{ reg.config?.manifest_ttl_seconds ?? 300 }}s
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-muted-foreground">Version Registry TTL</span>
+                <UiBadge v-if="fieldSource('registry_ttl_seconds') === 'base'" variant="secondary" class="text-[9px]">
+                  base
+                </UiBadge>
               </div>
-            </div>
-            <div class="rounded-md bg-muted/30 p-2.5">
-              <div class="text-muted-foreground">Version Registry TTL</div>
               <div class="font-medium text-foreground mt-0.5">
-                {{ reg.config?.registry_ttl_seconds ?? 900 }}s
+                {{ resolvedField('registry_ttl_seconds', 900) }}s
               </div>
+              <button
+                v-if="fieldSource('registry_ttl_seconds') === 'registry' && baseFlutterMode === 'inherit'"
+                type="button"
+                class="text-[10px] text-muted-foreground hover:text-foreground underline"
+                :disabled="baseLoading"
+                @click="revertFieldToBase('registry_ttl_seconds')"
+              >
+                revert to base
+              </button>
             </div>
           </div>
         </UiCard>
