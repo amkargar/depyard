@@ -2,7 +2,7 @@
 node_modules/
 frontend/.nuxt/
 frontend/.output/
-frontend/dist/
+frontend/dist
 backend/data/
 backend/bin/
 *.log
