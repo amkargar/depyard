@@ -16,6 +16,7 @@ Compiled registry modules built on the ecosystem-agnostic core:
 - **Flutter Storage Base URL Mirror (`FLUTTER_STORAGE_BASE_URL`)**:
   - Mirrors `storage.googleapis.com` (or any regional Flutter storage mirror) with path-prefix allowlists and path-traversal protection.
   - **Per-category storage settings registry** for every `FLUTTER_STORAGE_BASE_URL` category (`flutter_infra_release`, `flutter_infra`, `download.flutter.io`, `dart-archive`): independent upstream repository, allowed prefixes, manifest TTL, manifest `base_url` rewriting, cache policy, and enable/disable toggles — all editable live in the Admin Console.
+  - **Platform-wide base storage settings** (`/admin/settings` → *Base Flutter Storage Settings*): one block of defaults that seeds new registries, can be pushed into existing ones field-by-field (`fill-missing` or `overwrite`, with a per-registry diff preview), and — in **inherit** mode — supplies any field a registry leaves unset, updating live within seconds without rewriting stored configs. See [docs/flutter-base-settings.md](docs/flutter-base-settings.md).
   - **Per-version Flutter SDK registry**: derives every installable Flutter release (version, channel, Dart SDK version, commit hash, release date, platform archives, SHA-256 checksums) from the upstream `releases_*.json` manifests, and documents the exact storage resolution used for each version. Served at `/r/<slug>/api/registry`, `/r/<slug>/api/registry/versions/<version>`, and `/api/admin/registries/<id>/version-registry`, and rendered in both the Admin Console ("Versions & Storage" tab) and the public Flutter Storage Explorer.
   - Configurable release-manifest source (`releases_base_url`) for regional mirrors, plus configurable version-registry TTL.
   - Automatically rewrites `base_url` in Flutter release manifests (`releases_*.json`) to point to your mirror (also handles CDN-hosted manifests whose `base_url` host differs from the fetch host), with configurable manifest TTL and stale-while-error fallback.
@@ -160,6 +161,55 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 The same data is rendered in the Admin Console under **Registries → <instance> → Versions & Storage**
 and in the public Flutter Storage Explorer, and is refreshed automatically (default TTL 900s).
+
+### Base Flutter Storage settings (platform-wide defaults)
+
+`/admin/settings` → **Base Flutter Storage Settings** holds one config block for every Flutter Storage
+registry. It is stored as `default_flutter_storage_config` and controlled by `flutter_base_config_mode`:
+
+| Mode | Behaviour |
+|---|---|
+| `defaults` (default) | Seeds the create form and the first-start seed only. Existing registries keep their stored values until you apply the base explicitly. |
+| `inherit` | Registries that leave a field unset follow the base **live** — changing the base updates them within seconds, no restart and no config rewrite. |
+
+Precedence is always **registry → base → built-in default**, resolved field by field, with
+`download_storage` merged *per category and then per field* (so a base-level
+`{"name": "dart-archive", "enabled": false}` policy survives a registry that only overrides another
+category's TTL). A registry can opt out of category merging with `"download_storage_mode": "replace"`.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost/api/admin/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' | jq -r .token)
+
+# Save the base settings (validated by the same strict parser the runtime uses)
+curl -s -X PUT http://localhost/api/admin/settings \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+    "site_title": "Mirror Registry",
+    "default_flutter_storage_url": "https://storage.flutter-io.cn",
+    "flutter_base_config_mode": "inherit",
+    "default_flutter_storage_config": {
+      "upstream_url": "https://storage.flutter-io.cn",
+      "manifest_ttl_seconds": 120,
+      "download_storage": [{ "name": "dart-archive", "enabled": false }]
+    }
+  }' | jq '.flutter_base_config_mode, .default_flutter_storage_config'
+
+# Preview what applying the base would change, per registry (never writes)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost/api/admin/settings/base-config/flutter/impact | jq '.registries[] | {slug, changes}'
+
+# Push it into existing registries (fill-missing = never clobber an override)
+curl -s -X POST http://localhost/api/admin/settings/base-config/flutter/apply \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"mode":"fill-missing","dry_run":false}' | jq '.applied, .failed'
+```
+
+Apply semantics: `fill-missing` (default) writes only fields the registry does not set and is
+idempotent — a second run reports `applied: 0`. `overwrite` replaces the selected `fields` (all base
+fields when omitted) and the response returns the exact `from`/`to` per field. Every apply is
+audit-logged as `settings.base_config.apply` and re-validates the merged config before persisting, so
+an incompatible base can never corrupt a live registry. Cached artifacts are never deleted.
 
 For private registries or publishing Dart packages:
 

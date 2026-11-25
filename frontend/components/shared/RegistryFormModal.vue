@@ -36,6 +36,15 @@ const platformDefaults = ref<{ pub: string; flutter: string }>({
   pub: 'https://pub.dev',
   flutter: 'https://storage.googleapis.com',
 })
+/** Platform base Flutter Storage settings, used to seed new registries. */
+const baseFlutterConfig = ref<Record<string, any>>({})
+const baseFlutterMode = ref<'defaults' | 'inherit'>('defaults')
+const useBaseFlutter = ref(true)
+
+/** True when a base config exists and the admin wants to start from it. */
+const willSeedFromBase = computed(
+  () => isFlutterType.value && useBaseFlutter.value && Object.keys(baseFlutterConfig.value).length > 0,
+)
 
 const form = reactive({
   name: '',
@@ -96,10 +105,26 @@ function applyTypeConfigDefaults(regType?: RegistryTypeInfo) {
     }
   }
   if (regType?.type === 'flutter') {
+    if (useBaseFlutter.value && Object.keys(baseFlutterConfig.value).length > 0) {
+      // Seed from the platform base settings so a new registry starts from org-wide policy.
+      const seeded: Record<string, any> = {}
+      for (const [key, value] of Object.entries(baseFlutterConfig.value)) {
+        if (key === 'upstream_url') continue // base-only: goes to Instance.UpstreamURL
+        seeded[key] = Array.isArray(value) ? JSON.parse(JSON.stringify(value)) : value
+      }
+      form.config = { ...form.config, ...seeded }
+      if (baseFlutterMode.value === 'inherit') {
+        // In inherit mode the base already supplies these live; persisting them would make the
+        // registry look "overridden" and freeze today's values. Keep only the catalogue.
+        form.config = { available_storage_categories: form.config.available_storage_categories }
+      }
+    }
     const catalogue: string[] = Array.isArray(form.config.available_storage_categories)
       ? form.config.available_storage_categories
       : []
-    form.config.download_storage = catalogue.map((name) => ({ name }))
+    if (!Array.isArray(form.config.download_storage) || form.config.download_storage.length === 0) {
+      form.config.download_storage = catalogue.map((name) => ({ name }))
+    }
     if (!form.config.storage_name) form.config.storage_name = 'Flutter Storage'
   }
 }
@@ -137,6 +162,11 @@ async function fetchPlatformDefaults() {
     platformDefaults.value = {
       pub: s.default_pub_upstream_url || 'https://pub.dev',
       flutter: s.default_flutter_storage_url || 'https://storage.googleapis.com',
+    }
+    baseFlutterConfig.value = s.default_flutter_storage_config || {}
+    baseFlutterMode.value = s.flutter_base_config_mode === 'inherit' ? 'inherit' : 'defaults'
+    if (s.default_flutter_storage_config?.upstream_url) {
+      platformDefaults.value.flutter = s.default_flutter_storage_config.upstream_url
     }
   } catch {
     // fallback defaults already set
@@ -244,6 +274,13 @@ watch(
     testError.value = ''
   },
 )
+
+// Base settings may arrive after the create watch ran; re-apply the Flutter defaults once they do.
+watch(baseFlutterConfig, () => {
+  if (props.editing || !props.open || !isFlutterType.value) return
+  if (form.name || form.slug) return // admin already typed something; never stomp on it
+  applyTypeConfigDefaults(props.types.find((t) => t.type === form.type))
+})
 
 watch(
   () => form.visibility,
@@ -719,12 +756,38 @@ async function handleSubmit() {
 
       <!-- Flutter Storage (FLUTTER_STORAGE_BASE_URL) category settings -->
       <div v-if="isFlutterType" class="space-y-3 border-t pt-4">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          FLUTTER_STORAGE_BASE_URL Settings
-        </h3>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            FLUTTER_STORAGE_BASE_URL Settings
+          </h3>
+          <div
+            v-if="baseFlutterMode === 'inherit' && Object.keys(baseFlutterConfig).length > 0"
+            class="flex items-center gap-2"
+          >
+            <UiBadge variant="secondary" class="text-[10px]">inherits base settings</UiBadge>
+            <UiSwitch
+              :model-value="useBaseFlutter"
+              aria-label="Seed this registry from the base Flutter Storage settings"
+              @update:model-value="
+                (v: boolean) => {
+                  useBaseFlutter = v
+                  applyTypeConfigDefaults(types.find((t) => t.type === form.type))
+                }
+              "
+            />
+          </div>
+        </div>
+        <p v-if="willSeedFromBase" class="text-[11px] text-muted-foreground">
+          Pre-filled from the platform base settings.
+          <template v-if="baseFlutterMode === 'inherit'">
+            Unset fields keep following the base live — only set a field here to override it.
+          </template>
+        </p>
         <SharedFlutterStorageSettings
           :config="form.config"
           :upstream-url="form.upstream_url"
+          :base-keys="baseFlutterMode === 'inherit' ? Object.keys(baseFlutterConfig) : []"
+          :base-config="baseFlutterConfig"
           compact
           @update:config="handleFlutterConfigUpdate"
         />

@@ -96,6 +96,11 @@ type Config struct {
 	ServeStaleOnError      bool  `json:"serve_stale_on_error"`
 	MaxArtifactSizeBytes   int64 `json:"max_artifact_size_bytes,omitempty"`
 	UpstreamTimeoutSeconds int   `json:"upstream_timeout_seconds,omitempty"`
+
+	// DownloadStorageMode controls how instance download_storage entries combine with the
+	// platform-wide base settings: "" ("merge", the default) merges per category, "replace"
+	// uses the instance list as-is.
+	DownloadStorageMode string `json:"download_storage_mode,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -129,6 +134,7 @@ func ParseConfig(raw map[string]any) (Config, error) {
 		"serve_stale_on_error":     true,
 		"max_artifact_size_bytes":  true,
 		"upstream_timeout_seconds": true,
+		"download_storage_mode":    true,
 	}
 	for k := range raw {
 		if !allowedKeys[k] {
@@ -242,6 +248,16 @@ func ParseConfig(raw map[string]any) (Config, error) {
 				cfg.DownloadStorage = append(cfg.DownloadStorage, DownloadStorageSetting{Name: name})
 			}
 		}
+	}
+
+	cfg.DownloadStorageMode = strings.ToLower(strings.TrimSpace(cfg.DownloadStorageMode))
+	switch cfg.DownloadStorageMode {
+	case "", "merge":
+		cfg.DownloadStorageMode = ""
+	case "replace":
+		// explicit opt-out of base-category merging
+	default:
+		return cfg, fmt.Errorf("download_storage_mode must be \"merge\" or \"replace\"")
 	}
 
 	// Resolve the effective allowlist:

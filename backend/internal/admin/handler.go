@@ -132,6 +132,10 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/admin/audit-logs", h.requireAdmin(h.handleAuditLogs))
 	h.mux.HandleFunc("GET /api/admin/settings", h.requireAdmin(h.handleGetSettings))
 	h.mux.HandleFunc("PUT /api/admin/settings", h.requireAdmin(h.handleUpdateSettings))
+	// Platform-wide base storage settings: preview the impact and push it to existing registries.
+	h.mux.HandleFunc("GET /api/admin/settings/base-config/{type}/impact", h.requireAdmin(h.handleBaseConfigImpact))
+	h.mux.HandleFunc("POST /api/admin/settings/base-config/{type}/apply", h.requireAdmin(h.handleBaseConfigApply))
+	h.mux.HandleFunc("GET /api/admin/settings/base-config", h.requireAdmin(h.handleListBaseConfigs))
 	h.mux.HandleFunc("POST /api/admin/upstream/test", h.requireAdmin(h.handleTestUpstream))
 }
 
@@ -1233,6 +1237,12 @@ func (h *Handler) getSettings(ctx context.Context) (*PlatformSettings, error) {
 	return &cp, nil
 }
 
+// GetSettings exposes the current platform settings to other packages (e.g. the composition root
+// wiring live base-config inheritance) without re-reading the store on every call.
+func (h *Handler) GetSettings(ctx context.Context) (*PlatformSettings, error) {
+	return h.getSettings(ctx)
+}
+
 func (h *Handler) handleGetSettings(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
 	st, err := h.getSettings(r.Context())
 	if err != nil {
@@ -1278,6 +1288,14 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request, p
 	}
 
 	body.Normalize()
+	var flutterSpec *registry.BaseConfigSpec
+	if reg, ok := h.manager.GetType(flutterBaseRegistryType); ok {
+		flutterSpec = reg.BaseConfig
+	}
+	if err := body.NormalizeFlutterBase(flutterSpec); err != nil {
+		writeError(w, http.StatusBadRequest, "default_flutter_storage_config: "+err.Error())
+		return
+	}
 	body.UpdatedAt = time.Now().UTC()
 
 	if h.upstream != nil {

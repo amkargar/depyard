@@ -297,6 +297,14 @@ type VersionRegistryProvider interface {
 	VersionRegistry(ctx context.Context) (any, error)
 }
 
+// DefaultsProvider supplies platform-wide base configuration per registry type (for example the
+// admin "base Flutter Storage settings"). Registry factories consult it so that fields a registry
+// does not set follow the platform base live, without rewriting stored instances.
+type DefaultsProvider interface {
+	// BaseConfig returns the base config map for a registry type. A nil map means "no base".
+	BaseConfig(ctx context.Context, registryType string) (map[string]any, error)
+}
+
 // ServiceDeps passes shared ecosystem-agnostic core services into registry factories.
 type ServiceDeps struct {
 	Storage  *storage.Service
@@ -305,6 +313,8 @@ type ServiceDeps struct {
 	Auth     *auth.Service
 	Metrics  *metrics.Collector
 	Audit    *audit.Service
+	// Defaults is optional; when nil, registries behave exactly as before (no base merging).
+	Defaults DefaultsProvider
 }
 
 // ConfigFieldHint describes an optional ecosystem-specific setting for admin UI rendering.
@@ -316,6 +326,22 @@ type ConfigFieldHint struct {
 	DefaultValue any    `json:"default_value,omitempty"`
 }
 
+// BaseConfigSpec describes how an ecosystem consumes platform-wide base settings (for example the
+// admin "base Flutter Storage settings"). Core/admin code drives it purely through this interface,
+// so it never needs to import a concrete registry implementation.
+type BaseConfigSpec struct {
+	// Keys lists the configuration keys the base may supply.
+	Keys []string
+	// Normalize validates a base config and returns a canonical copy (or an error).
+	Normalize func(raw map[string]any) (map[string]any, error)
+	// Merge overlays the base underneath an instance config; instance values always win.
+	Merge func(base, instance map[string]any) map[string]any
+	// Diff reports, per field, where the effective value comes from. Shape is ecosystem-defined.
+	Diff func(base, instance map[string]any) any
+	// Seed turns the base into a starter instance config for newly created registries.
+	Seed func(base map[string]any) map[string]any
+}
+
 // Registration describes a compiled registry type and its factory.
 type Registration struct {
 	Type               string
@@ -324,8 +350,10 @@ type Registration struct {
 	DefaultUpstreamURL string
 	Capabilities       Capabilities
 	ConfigHints        []ConfigFieldHint
-	ValidateConfig     func(cfg map[string]any) error
-	Create             func(ctx context.Context, inst *Instance, deps ServiceDeps) (Registry, error)
+	// BaseConfig is optional: set it when the ecosystem supports platform-wide base settings.
+	BaseConfig     *BaseConfigSpec
+	ValidateConfig func(cfg map[string]any) error
+	Create         func(ctx context.Context, inst *Instance, deps ServiceDeps) (Registry, error)
 }
 
 // TypeInfo is the JSON view of an installed registry type exposed to the admin API.
