@@ -17,13 +17,18 @@ type Config struct {
 	MongoURI               string
 	MongoDatabase          string
 	EnableRootCompatRoute  bool
-	DefaultRegistrySlug    string
-	DefaultRegistryName    string
-	DefaultRegistryType    string
-	DefaultRegistryMode    string
-	DefaultUpstreamURL     string
-	SeedDefaultRegistry    bool
-	AdminUsername          string
+	DefaultRegistrySlug       string
+	DefaultRegistryName       string
+	DefaultRegistryType       string
+	DefaultRegistryMode       string
+	DefaultUpstreamURL        string
+	SeedDefaultRegistry       bool
+	SeedFlutterStorage        bool
+	DefaultFlutterSlug        string
+	DefaultFlutterName        string
+	DefaultFlutterUpstreamURL string
+	UpstreamProxyURL          string
+	AdminUsername             string
 	AdminPassword          string
 	AdminEmail             string
 	SessionTTL             time.Duration
@@ -45,13 +50,18 @@ func Load() Config {
 		MongoURI:               getEnv("MONGODB_URI", "mongodb://localhost:27017"),
 		MongoDatabase:          getEnv("MONGODB_DATABASE", "mirror_registry"),
 		EnableRootCompatRoute:  getEnvBool("ENABLE_ROOT_COMPAT_ROUTE", true),
-		DefaultRegistrySlug:    getEnv("DEFAULT_REGISTRY_SLUG", "pub-public"),
-		DefaultRegistryName:    getEnv("DEFAULT_REGISTRY_NAME", "Pub Public Mirror"),
-		DefaultRegistryType:    getEnv("DEFAULT_REGISTRY_TYPE", "pub"),
-		DefaultRegistryMode:    getEnv("DEFAULT_REGISTRY_MODE", "hybrid"),
-		DefaultUpstreamURL:     getEnv("DEFAULT_UPSTREAM_URL", "https://pub.dev"),
-		SeedDefaultRegistry:    getEnvBool("SEED_DEFAULT_REGISTRY", true),
-		AdminUsername:          getEnv("ADMIN_USERNAME", "admin"),
+		DefaultRegistrySlug:       getEnv("DEFAULT_REGISTRY_SLUG", "pub-public"),
+		DefaultRegistryName:       getEnv("DEFAULT_REGISTRY_NAME", "Pub Public Mirror"),
+		DefaultRegistryType:       getEnv("DEFAULT_REGISTRY_TYPE", "pub"),
+		DefaultRegistryMode:       getEnv("DEFAULT_REGISTRY_MODE", "hybrid"),
+		DefaultUpstreamURL:        getEnv("DEFAULT_UPSTREAM_URL", "https://pub.dev"),
+		SeedDefaultRegistry:       getEnvBool("SEED_DEFAULT_REGISTRY", true),
+		SeedFlutterStorage:        getEnvBool("SEED_FLUTTER_STORAGE", true),
+		DefaultFlutterSlug:        getEnv("DEFAULT_FLUTTER_SLUG", "flutter-storage"),
+		DefaultFlutterName:        getEnv("DEFAULT_FLUTTER_NAME", "Flutter Storage Mirror"),
+		DefaultFlutterUpstreamURL: getEnv("DEFAULT_FLUTTER_UPSTREAM_URL", "https://storage.googleapis.com"),
+		UpstreamProxyURL:          getEnv("UPSTREAM_PROXY_URL", ""),
+		AdminUsername:             getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:          getEnv("ADMIN_PASSWORD", "admin123"),
 		AdminEmail:             getEnv("ADMIN_EMAIL", "admin@localhost"),
 		SessionTTL:             getEnvDuration("SESSION_TTL", 24*time.Hour),

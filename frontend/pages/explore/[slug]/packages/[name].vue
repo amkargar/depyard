@@ -47,7 +47,7 @@ watch(slug, loadRegistry)
 
     <component
       :is="explorerMapping.detail"
-      v-else-if="registry && explorerMapping"
+      v-else-if="registry && explorerMapping?.detail"
       :registry="registry"
       :package-name="packageName"
     />

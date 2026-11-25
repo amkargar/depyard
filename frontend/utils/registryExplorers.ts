@@ -1,16 +1,17 @@
 import type { Component } from 'vue'
 import PubRegistryExplorer from '~/components/explorers/pub/PubRegistryExplorer.vue'
 import PubPackageDetail from '~/components/explorers/pub/PubPackageDetail.vue'
+import FlutterStorageExplorer from '~/components/explorers/flutter/FlutterStorageExplorer.vue'
 
 export interface RegistryExplorerMapping {
   label: string
   explorer: Component
-  detail: Component
+  detail?: Component
 }
 
 /**
  * Small static mapping from compiled registry type to its isolated ecosystem-specific UI.
- * Future ecosystems (e.g. go, rpm, npm) register their own isolated explorer components here
+ * Future ecosystems register their own isolated explorer components here
  * without forcing every ecosystem into the Pub layout or introducing a dynamic plugin engine.
  */
 export const REGISTRY_EXPLORERS: Record<string, RegistryExplorerMapping> = {
@@ -18,6 +19,10 @@ export const REGISTRY_EXPLORERS: Record<string, RegistryExplorerMapping> = {
     label: 'Dart / Flutter Pub',
     explorer: PubRegistryExplorer,
     detail: PubPackageDetail,
+  },
+  flutter: {
+    label: 'Flutter Storage Mirror',
+    explorer: FlutterStorageExplorer,
   },
 }
 

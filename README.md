@@ -2,21 +2,31 @@
 
 A lightweight, extensible, self-hosted, multi-format package and artifact registry platform built with Go, MongoDB, and Nuxt 3 (shadcn-vue + Tailwind CSS + TypeScript).
 
-**Pub** (Dart / Flutter) is the first fully implemented registry type, built on top of an ecosystem-agnostic core that allows future package formats (Go Modules, RPM, NPM, OCI, etc.) to be added as isolated Go modules without rewriting shared infrastructure.
+Compiled registry modules built on the ecosystem-agnostic core:
+- **Pub (`pub`)** — Official Dart & Flutter Pub v2 registry (Proxy, Hosted, Hybrid).
+- **Flutter Storage (`flutter`)** — Full `FLUTTER_STORAGE_BASE_URL` caching mirror for Flutter SDK releases, engine artifacts, Dart archives, and Gradle Maven storage (`flutter_infra_release/`, `flutter_infra/`, `download.flutter.io/`, `dart-archive/`).
 
 ## Key Features
 
 - **Multi-Registry Architecture**: Clear separation between *registry types* (compiled Go packages) and *registry instances* (dynamically created & configured in MongoDB without restarting).
-- **Strict Core Isolation**: Shared core services (`storage`, `cache`, `upstream`, `auth`, `metrics`, `audit`, `admin`, `server`) have zero dependency on Pub or any concrete ecosystem.
+- **Strict Core Isolation**: Shared core services (`storage`, `cache`, `upstream`, `auth`, `metrics`, `audit`, `admin`, `server`) have zero dependency on concrete registry implementations (enforced by AST unit tests).
 - **Official Dart Pub v2 Compatibility**:
   - Proxy, Hosted, and Hybrid modes with deterministic resolution and hybrid namespace protection.
   - Full `dart pub publish` 3-step multipart upload workflow, version immutability, retraction, discontinuation, and package uploaders.
-  - Optional root-level compatibility route (`/api/packages/*`, `/packages/*`) for single-registry users alongside multi-registry `/r/{slug}/...` routing.
+- **Flutter Storage Base URL Mirror (`FLUTTER_STORAGE_BASE_URL`)**:
+  - Mirrors `storage.googleapis.com` (or any regional Flutter storage mirror) with path-prefix allowlists and path-traversal protection.
+  - Automatically rewrites `base_url` in Flutter release manifests (`releases_*.json`) to point to your mirror, with configurable manifest TTL and stale-while-error fallback.
+  - Streams large SDK/engine binaries directly from content-addressed storage with HTTP Range (`206 Partial Content`), `HEAD`, singleflight download deduplication, and SHA-256 verification.
+- **Multi-Type Root Compatibility & `/r/<slug>` Routing**:
+  - Every registry instance operates under its own isolated `/r/<slug>` base path.
+  - Optional root-level compatibility routing serves both the default Pub instance (`/api/packages/*`, `/packages/*`) and the default Flutter Storage instance (`/flutter_infra_release/*`, `/flutter_infra/*`, `/download.flutter.io/*`, `/dart-archive/*`) simultaneously.
+- **Live Admin Settings & Upstream Management**:
+  - Edit global platform settings (`site_title`, `public_base_url`, root compatibility toggle, retention days) and global outbound upstream settings (`http`/`https`/`socks5` proxy URL, timeout, User-Agent, TLS verification, default Pub & Flutter upstream URLs) live from `/admin/settings`.
+  - Configure per-registry upstream overrides (URL, Bearer/Basic/Custom-Header auth with masked secret storage, proxy override, timeout, TLS skip-verify, custom HTTP headers) and run live connectivity checks from the Admin UI.
 - **Content-Addressed Blob Storage**:
   - Atomic streaming writes, SHA-256 integrity verification, per-digest locking, and physical deduplication across registries.
   - Per-registry logical storage quotas, protected hosted blobs immune to proxy cache eviction, and reference-counted safe deletion.
 - **Centralized Scoped Auth**: Users, sessions, and access tokens restricted by registry instance, registry type, permission scopes (`read`, `publish`, `delete`, `admin`), and artifact namespace globs.
-- **Unified Monitoring & Admin Dashboard**: Global physical vs logical storage with deduplication savings, per-registry traffic, cache hit ratios, upstream health checks, active transfers, audit logs, and a pub.dev-inspired Pub Package Explorer.
 
 ## Quick Start (Docker Compose)
 
@@ -26,11 +36,55 @@ docker compose up --build
 
 Nginx serves as the single public entrypoint (default port `80`, override with `HTTP_PORT=8080 docker compose up --build`):
 - Serves the statically generated Nuxt SPA directly (no Node.js runtime container in production).
-- Streams `/r/`, `/api/`, `/packages/`, and `/healthz` directly to the Go backend with buffering disabled, raw path preservation, and `client_max_body_size 0`.
+- Streams `/r/`, `/api/`, `/packages/`, `/flutter_infra_release/`, `/flutter_infra/`, `/download.flutter.io/`, `/dart-archive/`, and `/healthz` directly to the Go backend with buffering disabled, raw path preservation, and `client_max_body_size 0`.
 - Keeps `backend` and `mongodb` isolated on the internal Docker network without exposing host ports.
 
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
-- Default bootstrap admin credentials: `admin` / `changeme123` (configurable via `ADMIN_USERNAME` and `ADMIN_PASSWORD`).
+- On first startup with an empty database, both `pub-public` (`PUB_HOSTED_URL`) and `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`) are seeded automatically.
+
+## Creating & Managing Admin Users
+
+There are three ways to create an administrator account:
+
+### 1. Automatic Bootstrap Admin (First Startup)
+
+Set the bootstrap environment variables in `docker-compose.yml` (or your environment) before starting the backend for the first time:
+
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-strong-password
+ADMIN_EMAIL=admin@example.com
+```
+
+When the users collection has no admin user yet, the backend automatically creates this admin account on startup (default fallback if unset: `admin` / `changeme123` — change this immediately in production).
+
+### 2. Via the Admin Web UI
+
+1. Sign in at `http://localhost/login` with an existing admin account.
+2. Open **Admin Console → Users** (`/admin/users`).
+3. Click **Create User**, enter the username, email, and password, set **Role** to **`Admin`**, and click **Create User**.
+
+### 3. Via the Admin HTTP API
+
+Authenticate as an existing admin (session cookie or admin Bearer token) and send a `POST /api/admin/users` request:
+
+```bash
+# 1. Log in to obtain an admin session token
+TOKEN=$(curl -sS -X POST http://localhost/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"changeme123"}' | jq -r '.token')
+
+# 2. Create a new admin user
+curl -sS -X POST http://localhost/api/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "ops-admin",
+    "email": "ops@example.com",
+    "password": "StrongPassword!123",
+    "role": "admin"
+  }'
+```
 
 ## Running Pre-Built Release Images (No Build Required)
 
@@ -59,19 +113,31 @@ HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
 
 Then open `http://localhost:8080`.
 
-## Using with Dart / Flutter
+## Using with Dart & Flutter
+
+### Pub Packages (`PUB_HOSTED_URL`) + Flutter SDK / Engine Storage (`FLUTTER_STORAGE_BASE_URL`)
 
 ```bash
-# Multi-registry URL
+# Multi-registry isolated URLs
 export PUB_HOSTED_URL="http://localhost/r/pub-public"
+export FLUTTER_STORAGE_BASE_URL="http://localhost/r/flutter-storage"
 
-# Or root-level compatibility URL (routed to the default Pub instance)
+# Or root-level compatibility URLs (both default Pub and default Flutter Storage work on the same host!)
 export PUB_HOSTED_URL="http://localhost"
+export FLUTTER_STORAGE_BASE_URL="http://localhost"
 
-dart pub get
+flutter doctor
+flutter pub get
 ```
 
-For private registries or publishing:
+On Windows PowerShell:
+
+```powershell
+$env:PUB_HOSTED_URL="http://localhost/r/pub-public"
+$env:FLUTTER_STORAGE_BASE_URL="http://localhost/r/flutter-storage"
+```
+
+For private registries or publishing Dart packages:
 
 ```bash
 dart pub token add http://localhost/r/pub-private

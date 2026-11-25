@@ -60,6 +60,35 @@ server {
         proxy_pass http://mirror_backend;
     }
 
+    # Optional root-level FLUTTER_STORAGE_BASE_URL compatibility routes
+    location ^~ /flutter_infra_release/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    location ^~ /flutter_infra/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    location ^~ /download.flutter.io/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    location ^~ /dart-archive/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
     # Content-hashed Nuxt static build assets
     location ^~ /_nuxt/ {
         expires 1y;

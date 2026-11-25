@@ -56,7 +56,7 @@ func TestCoreNeverImportsConcreteRegistry(t *testing.T) {
 			}
 			for _, imp := range fileAST.Imports {
 				impPath := strings.Trim(imp.Path.Value, `"`)
-				if strings.Contains(impPath, "/internal/registry/pub") {
+				if strings.Contains(impPath, "/internal/registry/") {
 					t.Errorf("core file %s illegally imports concrete registry implementation %s", path, impPath)
 				}
 			}
