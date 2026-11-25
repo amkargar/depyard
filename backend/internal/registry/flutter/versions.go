@@ -117,8 +117,8 @@ var registryPlatforms = []string{"linux", "macos", "windows"}
 
 // releasesBaseURL resolves where release manifests live.
 func (r *FlutterRegistry) releasesBaseURL() string {
-	if r.cfg.ReleasesBaseURL != "" {
-		return strings.TrimRight(r.cfg.ReleasesBaseURL, "/")
+	if r.config().ReleasesBaseURL != "" {
+		return strings.TrimRight(r.config().ReleasesBaseURL, "/")
 	}
 	return strings.TrimRight(r.inst.UpstreamURL, "/") + "/flutter_infra_release/releases"
 }
@@ -191,12 +191,12 @@ func (r *FlutterRegistry) buildVersionRegistry(ctx context.Context, mirrorBaseUR
 	out := &VersionRegistry{
 		RegistryID:      r.inst.ID,
 		RegistrySlug:    r.inst.Slug,
-		StorageName:     r.cfg.StorageName,
+		StorageName:     r.config().StorageName,
 		UpstreamURL:     r.inst.UpstreamURL,
 		ReleasesBaseURL: r.releasesBaseURL(),
 		BasePath:        mirrorBaseURL,
 		GeneratedAt:     now,
-		ExpiresAt:       now.Add(time.Duration(r.cfg.RegistryTTLSeconds) * time.Second),
+		ExpiresAt:       now.Add(time.Duration(r.config().RegistryTTLSeconds) * time.Second),
 	}
 
 	versions := make(map[string]*FlutterVersion)
@@ -345,8 +345,8 @@ func upsertChannel(list []VersionChannel, next VersionChannel) []VersionChannel 
 func (r *FlutterRegistry) versionStorageTargets(mirrorBaseURL string, downloads []VersionDownload) []VersionStorage {
 	targets := make([]VersionStorage, 0, 3)
 	push := func(path string) {
-		channel, ok := r.cfg.resolveCategory(path)
-		upstreamURL := r.cfg.categoryUpstreamURL(channel, r.inst.UpstreamURL)
+		channel, ok := r.config().resolveCategory(path)
+		upstreamURL := r.config().categoryUpstreamURL(channel, r.inst.UpstreamURL)
 		target := VersionStorage{
 			Category:    channel.Name,
 			Path:        path,
@@ -374,16 +374,16 @@ func (r *FlutterRegistry) versionStorageTargets(mirrorBaseURL string, downloads 
 
 // storageChannels exposes the effective per-category storage settings for the public registry view.
 func (r *FlutterRegistry) storageChannels(mirrorBaseURL string) []StorageChannel {
-	out := make([]StorageChannel, 0, len(r.cfg.DownloadStorage))
-	for _, d := range r.cfg.DownloadStorage {
+	out := make([]StorageChannel, 0, len(r.config().DownloadStorage))
+	for _, d := range r.config().DownloadStorage {
 		out = append(out, StorageChannel{
 			Name:               d.Name,
 			Enabled:            d.isEnabled(),
-			UpstreamURL:        r.cfg.categoryUpstreamURL(d, r.inst.UpstreamURL),
+			UpstreamURL:        r.config().categoryUpstreamURL(d, r.inst.UpstreamURL),
 			MirrorURL:          mirrorBaseURL + "/" + d.Name,
 			AllowedPrefixes:    d.prefixes(),
-			RewritesManifests:  r.cfg.categoryRewriteManifests(d),
-			ManifestTTLSeconds: r.cfg.categoryManifestTTL(d),
+			RewritesManifests:  r.config().categoryRewriteManifests(d),
+			ManifestTTLSeconds: r.config().categoryManifestTTL(d),
 			InheritsUpstream:   d.UpstreamURL == "",
 		})
 	}
