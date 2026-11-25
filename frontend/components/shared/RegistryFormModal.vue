@@ -95,6 +95,40 @@ function applyTypeConfigDefaults(regType?: RegistryTypeInfo) {
       }
     }
   }
+  if (regType?.type === 'flutter') {
+    const catalogue: string[] = Array.isArray(form.config.available_storage_categories)
+      ? form.config.available_storage_categories
+      : []
+    form.config.download_storage = catalogue.map((name) => ({ name }))
+    if (!form.config.storage_name) form.config.storage_name = 'Flutter Storage'
+  }
+}
+
+/** Config keys managed by the dedicated Flutter Storage settings editor. */
+const FLUTTER_STORAGE_KEYS = new Set([
+  'storage_name',
+  'available_storage_categories',
+  'releases_base_url',
+  'registry_ttl_seconds',
+  'download_storage',
+  'manifest_ttl_seconds',
+  'rewrite_manifest_urls',
+  'serve_stale_on_error',
+  'upstream_timeout_seconds',
+  'max_artifact_size_bytes',
+])
+
+const isFlutterType = computed(() => form.type === 'flutter')
+
+// Hints rendered by the generic hint renderer (Flutter uses its dedicated editor instead).
+const genericConfigHints = computed(() =>
+  (selectedType.value?.config_hints ?? []).filter(
+    (hint) => !(isFlutterType.value && FLUTTER_STORAGE_KEYS.has(hint.key)),
+  ),
+)
+
+function handleFlutterConfigUpdate(next: Record<string, any>) {
+  form.config = { ...next }
 }
 
 async function fetchPlatformDefaults() {
@@ -310,11 +344,39 @@ async function handleSubmit() {
         if (val === undefined || val === '' || (Array.isArray(val) && val.length === 0)) {
           continue
         }
+        if (h.key === 'available_storage_categories') continue // read-only catalogue
         if (h.type === 'number') {
           cleanConfig[h.key] = Number(val)
         } else {
           cleanConfig[h.key] = val
         }
+      }
+    }
+    if (isFlutterType.value) {
+      const storageEntries = Array.isArray(form.config.download_storage)
+        ? (form.config.download_storage as any[])
+            .map((entry) => ({
+              name: String(entry?.name || '').trim(),
+              upstream_url: String(entry?.upstream_url || '').trim(),
+              allowed_prefixes: Array.isArray(entry?.allowed_prefixes)
+                ? entry.allowed_prefixes
+                : undefined,
+              manifest_ttl_seconds:
+                entry?.manifest_ttl_seconds === undefined || entry?.manifest_ttl_seconds === ''
+                  ? undefined
+                  : Number(entry.manifest_ttl_seconds),
+              rewrite_manifest_urls:
+                typeof entry?.rewrite_manifest_urls === 'boolean'
+                  ? entry.rewrite_manifest_urls
+                  : undefined,
+              enabled: typeof entry?.enabled === 'boolean' ? entry.enabled : undefined,
+            }))
+            .filter((entry) => entry.name)
+        : []
+      if (storageEntries.length > 0) {
+        cleanConfig.download_storage = storageEntries
+      } else {
+        delete cleanConfig.download_storage
       }
     }
 
@@ -655,13 +717,26 @@ async function handleSubmit() {
         </div>
       </div>
 
-      <!-- Ecosystem-specific validated settings rendered from TypeInfo hints -->
-      <div v-if="selectedType?.config_hints?.length" class="space-y-3 border-t pt-4">
+      <!-- Flutter Storage (FLUTTER_STORAGE_BASE_URL) category settings -->
+      <div v-if="isFlutterType" class="space-y-3 border-t pt-4">
         <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {{ selectedType.display_name }} Settings
+          FLUTTER_STORAGE_BASE_URL Settings
+        </h3>
+        <SharedFlutterStorageSettings
+          :config="form.config"
+          :upstream-url="form.upstream_url"
+          compact
+          @update:config="handleFlutterConfigUpdate"
+        />
+      </div>
+
+      <!-- Ecosystem-specific validated settings rendered from TypeInfo hints -->
+      <div v-if="genericConfigHints.length" class="space-y-3 border-t pt-4">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {{ selectedType?.display_name }} Settings
         </h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div v-for="hint in selectedType.config_hints" :key="hint.key" class="space-y-1">
+          <div v-for="hint in genericConfigHints" :key="hint.key" class="space-y-1">
             <div v-if="hint.type === 'boolean'" class="flex items-center justify-between rounded-md border px-3 py-2">
               <div>
                 <div class="text-xs font-medium">{{ hint.label }}</div>

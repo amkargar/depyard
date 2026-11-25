@@ -72,6 +72,11 @@ Implement these **only** when your registry supports them — never add empty st
 - `registry.CompatPathMatcher` (`MatchesCompatPath`) — optional root-level compatibility routing when marked as default.
 - `registry.RegistryCleaner` (`CleanupRegistry`) — deletes ecosystem-specific metadata when an instance is removed.
 - `registry.Closer` (`Close`) — releases background resources on instance reload or deletion.
+- `registry.VersionRegistryProvider` (`VersionRegistry`) — exposes an ecosystem version catalogue (see the Flutter Storage implementation for a per-version registry that documents every installable SDK release and the storage settings used to resolve it). Core code only knows the interface: the Admin API route `GET /api/admin/registries/{id}/version-registry` proxies whatever JSON snapshot the ecosystem returns.
+
+### Ecosystem settings registries
+
+Ecosystem-specific settings live in `Instance.Config` and are validated by the type's `ValidateConfig` function. `ConfigHints` describes each setting for the generic Admin form renderer (`string`, `number`, `boolean`, `string_list`). Structured, nested settings (such as Flutter Storage's per-category `download_storage` array) are supported too: validate them in `ValidateConfig`, expose their catalogue through `ConfigHints`, and render them with a dedicated component that is swapped in by registry type in the Admin UI (see `frontend/components/shared/FlutterStorageSettings.vue`). Shared core packages never learn about the concrete schema.
 
 ---
 

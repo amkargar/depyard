@@ -193,8 +193,11 @@ func main() {
 					},
 					CachePolicy: registry.DefaultCachePolicy(),
 					Config: map[string]any{
+						"storage_name":             cfg.DefaultFlutterName,
 						"allowed_prefixes":         flutter.DefaultAllowedPrefixes,
+						"download_storage":         flutter.DefaultDownloadStorage(),
 						"manifest_ttl_seconds":     300,
+						"registry_ttl_seconds":     900,
 						"rewrite_manifest_urls":    true,
 						"serve_stale_on_error":     true,
 						"upstream_timeout_seconds": 300,
