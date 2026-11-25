@@ -32,6 +32,33 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
 - Default bootstrap admin credentials: `admin` / `changeme123` (configurable via `ADMIN_USERNAME` and `ADMIN_PASSWORD`).
 
+## Running Pre-Built Release Images (No Build Required)
+
+Tagging a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or running the **Release Container Images** workflow manually in GitHub Actions automatically:
+1. Verifies Go tests and frontend typecheck.
+2. Builds and pushes multi-arch (`linux/amd64`, `linux/arm64`) images to GHCR (`ghcr.io/amkargar/mirror-registry-backend` and `ghcr.io/amkargar/mirror-registry-nginx`).
+3. Publishes a GitHub Release with downloadable `.tar.gz` image archives (`linux-amd64` and `linux-arm64`), a pinned `docker-compose.release.yml`, and `SHA256SUMS.txt`.
+
+### Option A: Pull directly from GHCR
+
+Download `docker-compose.release.yml` from the GitHub Release and start:
+
+```bash
+HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
+```
+
+### Option B: Load the Release Archive (Offline / Private GHCR)
+
+Download `docker-compose.release.yml` and the matching `.tar.gz` archive from the GitHub Release assets:
+
+```bash
+# Intel/AMD PC (Windows/Linux/Intel Mac) — use linux-arm64 on Apple Silicon Macs
+docker load -i mirror-registry-images-v1.0.0-linux-amd64.tar.gz
+HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
+```
+
+Then open `http://localhost:8080`.
+
 ## Using with Dart / Flutter
 
 ```bash
