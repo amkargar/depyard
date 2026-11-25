@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -63,6 +64,41 @@ func (u *UpstreamConfig) Sanitized() *UpstreamConfig {
 		cp.AuthToken = ""
 	}
 	return cp
+}
+
+// Validate normalizes and validates per-registry upstream overrides.
+func (u *UpstreamConfig) Validate() error {
+	if u == nil {
+		return nil
+	}
+	u.AuthType = strings.ToLower(strings.TrimSpace(u.AuthType))
+	u.AuthHeader = strings.TrimSpace(u.AuthHeader)
+	u.AuthUsername = strings.TrimSpace(u.AuthUsername)
+	u.ProxyURL = strings.TrimSpace(u.ProxyURL)
+	switch u.AuthType {
+	case "", "none":
+		u.AuthType = ""
+		u.AuthHeader = ""
+		u.AuthUsername = ""
+		u.AuthToken = ""
+	case "bearer", "basic":
+		// valid
+	case "header":
+		if u.AuthHeader == "" {
+			return fmt.Errorf("%w: upstream_config.auth_header is required when auth_type is header", ErrInvalidConfig)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported upstream_config.auth_type %q", ErrInvalidConfig, u.AuthType)
+	}
+	if u.ProxyURL != "" {
+		if _, err := upstream.ValidateProxyURL(u.ProxyURL); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		}
+	}
+	if u.TimeoutSeconds < 0 || u.TimeoutSeconds > 3600 {
+		return fmt.Errorf("%w: upstream_config.timeout_seconds must be between 0 and 3600", ErrInvalidConfig)
+	}
+	return nil
 }
 
 // BuildRequestOptions merges per-registry upstream config with caller-provided headers and fallback timeout.

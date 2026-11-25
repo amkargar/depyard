@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
 )
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$`)
@@ -443,33 +441,8 @@ func (m *Manager) validateAndNormalize(inst *Instance, isCreate bool) (*Instance
 	}
 
 	if cp.UpstreamConfig != nil {
-		uc := cp.UpstreamConfig
-		uc.AuthType = strings.ToLower(strings.TrimSpace(uc.AuthType))
-		uc.AuthHeader = strings.TrimSpace(uc.AuthHeader)
-		uc.AuthUsername = strings.TrimSpace(uc.AuthUsername)
-		uc.ProxyURL = strings.TrimSpace(uc.ProxyURL)
-		switch uc.AuthType {
-		case "", "none":
-			uc.AuthType = ""
-			uc.AuthHeader = ""
-			uc.AuthUsername = ""
-			uc.AuthToken = ""
-		case "bearer", "basic":
-			// valid
-		case "header":
-			if uc.AuthHeader == "" {
-				return nil, Registration{}, fmt.Errorf("%w: upstream_config.auth_header is required when auth_type is header", ErrInvalidConfig)
-			}
-		default:
-			return nil, Registration{}, fmt.Errorf("%w: unsupported upstream_config.auth_type %q", ErrInvalidConfig, uc.AuthType)
-		}
-		if uc.ProxyURL != "" {
-			if _, err := upstream.ValidateProxyURL(uc.ProxyURL); err != nil {
-				return nil, Registration{}, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-			}
-		}
-		if uc.TimeoutSeconds < 0 || uc.TimeoutSeconds > 3600 {
-			return nil, Registration{}, fmt.Errorf("%w: upstream_config.timeout_seconds must be between 0 and 3600", ErrInvalidConfig)
+		if err := cp.UpstreamConfig.Validate(); err != nil {
+			return nil, Registration{}, err
 		}
 	}
 

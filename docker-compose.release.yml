@@ -27,6 +27,9 @@ services:
       DEFAULT_REGISTRY_NAME: Pub Public Mirror
       DEFAULT_REGISTRY_MODE: hybrid
       DEFAULT_UPSTREAM_URL: https://pub.dev
+      SEED_FLUTTER_STORAGE: "true"
+      DEFAULT_FLUTTER_SLUG: flutter-storage
+      DEFAULT_FLUTTER_UPSTREAM_URL: https://storage.googleapis.com
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme123}
     volumes:

@@ -1274,12 +1274,22 @@ func (h *Handler) handleTestUpstream(w http.ResponseWriter, r *http.Request, _ *
 
 	uc := body.UpstreamConfig.Clone()
 	// If testing an existing registry without re-entering its saved auth secret, reuse stored secret safely.
-	if body.RegistryID != "" && uc != nil && uc.AuthToken == "" {
+	if body.RegistryID != "" {
 		if existing, err := h.manager.GetInstance(r.Context(), body.RegistryID); err == nil && existing.UpstreamConfig != nil {
-			authType := strings.ToLower(strings.TrimSpace(uc.AuthType))
-			if authType != "" && authType != "none" {
-				uc.AuthToken = existing.UpstreamConfig.AuthToken
+			if uc == nil {
+				uc = existing.UpstreamConfig.Clone()
+			} else if uc.AuthToken == "" {
+				authType := strings.ToLower(strings.TrimSpace(uc.AuthType))
+				if authType != "" && authType != "none" {
+					uc.AuthToken = existing.UpstreamConfig.AuthToken
+				}
 			}
+		}
+	}
+	if uc != nil {
+		if err := uc.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
 
