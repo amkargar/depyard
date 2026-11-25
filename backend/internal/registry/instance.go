@@ -287,6 +287,16 @@ type Closer interface {
 	Close() error
 }
 
+// VersionRegistryProvider is implemented by ecosystems that can enumerate their known artifact
+// versions (e.g. every Flutter SDK release) together with per-version resolution settings.
+// The Admin Console and ecosystem explorers use it to render version directories without
+// hardcoding any ecosystem-specific logic in shared core code.
+type VersionRegistryProvider interface {
+	// VersionRegistry returns an ecosystem-specific JSON-serializable registry snapshot.
+	// Implementations should honor registry.BaseURLFromContext for absolute mirror URLs.
+	VersionRegistry(ctx context.Context) (any, error)
+}
+
 // ServiceDeps passes shared ecosystem-agnostic core services into registry factories.
 type ServiceDeps struct {
 	Storage  *storage.Service

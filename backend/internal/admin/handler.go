@@ -103,6 +103,9 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("DELETE /api/admin/registries/{id}", h.requireAdmin(h.handleDeleteRegistry))
 	h.mux.HandleFunc("POST /api/admin/registries/{id}/health-check", h.requireAdmin(h.handleHealthCheck))
 
+	// Ecosystem version registry (e.g. Flutter SDK versions & storage settings)
+	h.mux.HandleFunc("GET /api/admin/registries/{id}/version-registry", h.requireAdmin(h.handleVersionRegistry))
+
 	// Capability-gated Artifact & Cache management
 	h.mux.HandleFunc("GET /api/admin/registries/{id}/artifacts", h.requireAdmin(h.handleListArtifacts))
 	h.mux.HandleFunc("DELETE /api/admin/registries/{id}/artifacts/{name}", h.requireAdmin(h.handleDeleteArtifact))
@@ -680,6 +683,63 @@ func (h *Handler) handleListArtifacts(w http.ResponseWriter, r *http.Request, _ 
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleVersionRegistry proxies an ecosystem's per-version registry snapshot (e.g. every Flutter
+// SDK release with its FLUTTER_STORAGE_BASE_URL settings) through the registry-agnostic Admin API.
+func (h *Handler) handleVersionRegistry(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+	id := r.PathValue("id")
+	rt, ok := h.manager.GetRuntimeByID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "registry not found")
+		return
+	}
+	provider, ok := rt.Registry.(registry.VersionRegistryProvider)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "registry does not expose a version registry")
+		return
+	}
+	ctx := registry.WithBaseURL(r.Context(), h.resolveBaseURL(r, rt.Instance.Slug))
+	snapshot, err := provider.VersionRegistry(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"registry_id":   rt.Instance.ID,
+		"registry_slug": rt.Instance.Slug,
+		"registry_type": rt.Instance.Type,
+		"registry":      snapshot,
+	})
+}
+
+// resolveBaseURL builds the externally visible base URL for a registry instance, honoring the
+// platform public_base_url setting and reverse-proxy headers before falling back to the request host.
+func (h *Handler) resolveBaseURL(r *http.Request, slug string) string {
+	h.settingsMu.RLock()
+	publicBase := ""
+	if h.defaultConfig != nil {
+		publicBase = h.defaultConfig.PublicBaseURL
+	}
+	h.settingsMu.RUnlock()
+	if publicBase != "" {
+		return strings.TrimRight(publicBase, "/") + "/r/" + slug
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+		scheme = strings.Split(proto, ",")[0]
+	}
+	host := r.Host
+	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
+		host = strings.Split(fwd, ",")[0]
+	}
+	if host == "" {
+		return "/r/" + slug
+	}
+	return scheme + "://" + strings.TrimSpace(host) + "/r/" + slug
 }
 
 func (h *Handler) handleDeleteArtifact(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {

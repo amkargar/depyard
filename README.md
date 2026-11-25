@@ -15,11 +15,15 @@ Compiled registry modules built on the ecosystem-agnostic core:
   - Full `dart pub publish` 3-step multipart upload workflow, version immutability, retraction, discontinuation, and package uploaders.
 - **Flutter Storage Base URL Mirror (`FLUTTER_STORAGE_BASE_URL`)**:
   - Mirrors `storage.googleapis.com` (or any regional Flutter storage mirror) with path-prefix allowlists and path-traversal protection.
-  - Automatically rewrites `base_url` in Flutter release manifests (`releases_*.json`) to point to your mirror, with configurable manifest TTL and stale-while-error fallback.
+  - **Per-category storage settings registry** for every `FLUTTER_STORAGE_BASE_URL` category (`flutter_infra_release`, `flutter_infra`, `download.flutter.io`, `dart-archive`): independent upstream repository, allowed prefixes, manifest TTL, manifest `base_url` rewriting, cache policy, and enable/disable toggles — all editable live in the Admin Console.
+  - **Per-version Flutter SDK registry**: derives every installable Flutter release (version, channel, Dart SDK version, commit hash, release date, platform archives, SHA-256 checksums) from the upstream `releases_*.json` manifests, and documents the exact storage resolution used for each version. Served at `/r/<slug>/api/registry`, `/r/<slug>/api/registry/versions/<version>`, and `/api/admin/registries/<id>/version-registry`, and rendered in both the Admin Console ("Versions & Storage" tab) and the public Flutter Storage Explorer.
+  - Configurable release-manifest source (`releases_base_url`) for regional mirrors, plus configurable version-registry TTL.
+  - Automatically rewrites `base_url` in Flutter release manifests (`releases_*.json`) to point to your mirror (also handles CDN-hosted manifests whose `base_url` host differs from the fetch host), with configurable manifest TTL and stale-while-error fallback.
   - Streams large SDK/engine binaries directly from content-addressed storage with HTTP Range (`206 Partial Content`), `HEAD`, singleflight download deduplication, and SHA-256 verification.
 - **Multi-Type Root Compatibility & `/r/<slug>` Routing**:
   - Every registry instance operates under its own isolated `/r/<slug>` base path.
   - Optional root-level compatibility routing serves both the default Pub instance (`/api/packages/*`, `/packages/*`) and the default Flutter Storage instance (`/flutter_infra_release/*`, `/flutter_infra/*`, `/download.flutter.io/*`, `/dart-archive/*`) simultaneously.
+- **Self-Hosted Roboto UI Font**: Roboto (SIL Open Font License 1.1) is bundled with the frontend under `frontend/public/fonts/roboto` and is the default UI typeface — no external font CDN is required, so air-gapped deployments render identically.
 - **Live Admin Settings & Upstream Management**:
   - Edit global platform settings (`site_title`, `public_base_url`, root compatibility toggle, retention days) and global outbound upstream settings (`http`/`https`/`socks5` proxy URL, timeout, User-Agent, TLS verification, default Pub & Flutter upstream URLs) live from `/admin/settings`.
   - Configure per-registry upstream overrides (URL, Bearer/Basic/Custom-Header auth with masked secret storage, proxy override, timeout, TLS skip-verify, custom HTTP headers) and run live connectivity checks from the Admin UI.
@@ -136,6 +140,26 @@ On Windows PowerShell:
 $env:PUB_HOSTED_URL="http://localhost/r/pub-public"
 $env:FLUTTER_STORAGE_BASE_URL="http://localhost/r/flutter-storage"
 ```
+
+### Flutter Storage settings registry & per-version registry
+
+Each Flutter Storage instance keeps a registry of the `FLUTTER_STORAGE_BASE_URL` categories and the
+Flutter SDK versions it can serve:
+
+```bash
+# Per-version Flutter SDK registry (versions, channels, download URLs, storage resolution)
+curl -s http://localhost/r/flutter-storage/api/registry | jq '.current_release, (.versions | length)'
+
+# A single version entry
+curl -s http://localhost/r/flutter-storage/api/registry/versions/3.27.1 | jq
+
+# Admin view (session/Admin token required) with absolute mirror URLs
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost/api/admin/registries/<registry-id>/version-registry | jq
+```
+
+The same data is rendered in the Admin Console under **Registries → <instance> → Versions & Storage**
+and in the public Flutter Storage Explorer, and is refreshed automatically (default TTL 900s).
 
 For private registries or publishing Dart packages:
 
