@@ -24,18 +24,22 @@ A lightweight, extensible, self-hosted, multi-format package and artifact regist
 docker compose up --build
 ```
 
-- **Package Explorer & Admin Console**: `http://localhost:3000`
-- **Registry API**: `http://localhost:8080`
+Nginx serves as the single public entrypoint (default port `80`, override with `HTTP_PORT=8080 docker compose up --build`):
+- Serves the statically generated Nuxt SPA directly (no Node.js runtime container in production).
+- Streams `/r/`, `/api/`, `/packages/`, and `/healthz` directly to the Go backend with buffering disabled, raw path preservation, and `client_max_body_size 0`.
+- Keeps `backend` and `mongodb` isolated on the internal Docker network without exposing host ports.
+
+- **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
 - Default bootstrap admin credentials: `admin` / `changeme123` (configurable via `ADMIN_USERNAME` and `ADMIN_PASSWORD`).
 
 ## Using with Dart / Flutter
 
 ```bash
 # Multi-registry URL
-export PUB_HOSTED_URL="http://localhost:8080/r/pub-public"
+export PUB_HOSTED_URL="http://localhost/r/pub-public"
 
 # Or root-level compatibility URL (routed to the default Pub instance)
-export PUB_HOSTED_URL="http://localhost:8080"
+export PUB_HOSTED_URL="http://localhost"
 
 dart pub get
 ```
@@ -43,7 +47,7 @@ dart pub get
 For private registries or publishing:
 
 ```bash
-dart pub token add http://localhost:8080/r/pub-private
+dart pub token add http://localhost/r/pub-private
 dart pub publish
 ```
 
