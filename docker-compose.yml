@@ -30,6 +30,9 @@ services:
       SEED_FLUTTER_STORAGE: "true"
       DEFAULT_FLUTTER_SLUG: flutter-storage
       DEFAULT_FLUTTER_UPSTREAM_URL: https://storage.googleapis.com
+      SEED_GO_PROXY: "true"
+      DEFAULT_GO_SLUG: go-proxy
+      DEFAULT_GO_UPSTREAM_URL: https://proxy.golang.org
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme123
     volumes:

@@ -2,6 +2,8 @@ import type { Component } from 'vue'
 import PubRegistryExplorer from '~/components/explorers/pub/PubRegistryExplorer.vue'
 import PubPackageDetail from '~/components/explorers/pub/PubPackageDetail.vue'
 import FlutterStorageExplorer from '~/components/explorers/flutter/FlutterStorageExplorer.vue'
+import GoRegistryExplorer from '~/components/explorers/go/GoRegistryExplorer.vue'
+import GoModuleDetail from '~/components/explorers/go/GoModuleDetail.vue'
 
 export interface RegistryExplorerMapping {
   label: string
@@ -23,6 +25,11 @@ export const REGISTRY_EXPLORERS: Record<string, RegistryExplorerMapping> = {
   flutter: {
     label: 'Flutter Storage Mirror',
     explorer: FlutterStorageExplorer,
+  },
+  goproxy: {
+    label: 'Go Module Proxy',
+    explorer: GoRegistryExplorer,
+    detail: GoModuleDetail,
   },
 }
 

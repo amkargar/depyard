@@ -15,6 +15,33 @@ const registryFilter = ref('')
 const actionFilter = ref('')
 const registries = ref<RegistryInstance[]>([])
 
+const registryOptions = computed(() => [
+  { value: '', label: 'All Registries' },
+  ...registries.value.map((r) => ({ value: r.id, label: `${r.name} (${r.slug})` })),
+])
+
+const AUDIT_ACTIONS = [
+  'auth.login',
+  'registry.create',
+  'registry.update',
+  'registry.toggle',
+  'registry.delete',
+  'token.create',
+  'token.revoke',
+  'artifact.publish',
+  'artifact.delete',
+  'cache.purge',
+  'settings.update',
+  'settings.base_config.apply',
+  'user.create',
+  'user.delete',
+]
+
+const actionOptions = computed(() => [
+  { value: '', label: 'All Actions' },
+  ...AUDIT_ACTIONS.map((a) => ({ value: a, label: a })),
+])
+
 async function loadData() {
   loading.value = true
   errorMsg.value = ''
@@ -62,29 +89,18 @@ onMounted(loadData)
       <UiSelect
         v-model="registryFilter"
         class="w-56"
+        :options="registryOptions"
+        aria-label="Filter by registry"
         @update:model-value="() => { page = 1; loadData() }"
-      >
-        <option value="">All Registries</option>
-        <option v-for="r in registries" :key="r.id" :value="r.id">{{ r.name }} ({{ r.slug }})</option>
-      </UiSelect>
+      />
 
       <UiSelect
         v-model="actionFilter"
         class="w-48"
+        :options="actionOptions"
+        aria-label="Filter by action"
         @update:model-value="() => { page = 1; loadData() }"
-      >
-        <option value="">All Actions</option>
-        <option value="auth.login">auth.login</option>
-        <option value="registry.create">registry.create</option>
-        <option value="registry.update">registry.update</option>
-        <option value="registry.toggle">registry.toggle</option>
-        <option value="registry.delete">registry.delete</option>
-        <option value="token.create">token.create</option>
-        <option value="token.revoke">token.revoke</option>
-        <option value="artifact.publish">artifact.publish</option>
-        <option value="artifact.delete">artifact.delete</option>
-        <option value="cache.purge">cache.purge</option>
-      </UiSelect>
+      />
     </div>
 
     <SharedErrorBanner :message="errorMsg" />
