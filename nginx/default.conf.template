@@ -1,0 +1,96 @@
+# Preserve incoming X-Forwarded-* headers when running behind an external TLS proxy,
+# otherwise fall back to the direct client scheme and Host (including port).
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
+map $http_x_forwarded_host $forwarded_host {
+    default $http_x_forwarded_host;
+    ""      $http_host;
+}
+
+upstream mirror_backend {
+    server ${BACKEND_UPSTREAM};
+    keepalive 32;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Let the Go backend enforce per-registry artifact size limits and storage quotas.
+    client_max_body_size 0;
+
+    # Preserve raw path encoding and slashes for protocol-specific registry endpoints.
+    merge_slashes off;
+    absolute_redirect off;
+
+    # Health check
+    location = /healthz {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_pass http://mirror_backend;
+    }
+
+    # Multi-registry protocol endpoints: /r/{slug}/...
+    # No trailing slash on proxy_pass so raw $request_uri (including %2F etc.) is preserved verbatim.
+    location ^~ /r/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    # Platform API (/api/admin/*, /api/public/*) and optional root-compat protocol endpoints (/api/packages/*, /api/search)
+    location ^~ /api/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    # Optional root-level Pub compatibility archive downloads (/packages/{name}/versions/{version}.tar.gz)
+    location ^~ /packages/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    # Content-hashed Nuxt static build assets
+    location ^~ /_nuxt/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # Ensure SPA entry HTML is always revalidated after deployments
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Static Nuxt SPA fallback (never intercepts /r/, /api/, /packages/, or /healthz)
+    location / {
+        try_files $uri /index.html;
+    }
+}
+
+# Example dedicated hostname routing for future registry protocols requiring root-level hostnames:
+#
+# server {
+#     listen 80;
+#     server_name registry-host.example.com;
+#
+#     client_max_body_size 0;
+#     merge_slashes off;
+#
+#     location / {
+#         include /etc/nginx/includes/proxy_params.conf;
+#         proxy_buffering off;
+#         proxy_request_buffering off;
+#         proxy_pass http://mirror_backend;
+#     }
+# }
