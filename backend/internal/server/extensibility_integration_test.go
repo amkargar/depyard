@@ -25,6 +25,7 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/cache"
 	"github.com/amkargar/mirror-registry/backend/internal/metrics"
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
 	"github.com/amkargar/mirror-registry/backend/internal/server"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
@@ -647,4 +648,285 @@ func TestMultiRegistryExtensibilityAndDartPubCompatibility(t *testing.T) {
 			t.Fatalf("expected 503 on disabled registry, got %d", disResp.StatusCode)
 		}
 	})
+}
+
+func TestFlutterStorageAdminSettingsAndUpstreamManagement(t *testing.T) {
+	ctx := context.Background()
+
+	var seenAuth atomic.Value
+	var seenUA atomic.Value
+	var seenCustomHeader atomic.Value
+	var mockStorage *httptest.Server
+	mockStorage = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth.Store(r.Header.Get("Authorization"))
+		seenUA.Store(r.Header.Get("User-Agent"))
+		seenCustomHeader.Store(r.Header.Get("X-Mirror-Env"))
+		switch r.URL.Path {
+		case "/flutter_infra_release/releases/releases_linux.json":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"base_url": mockStorage.URL + "/flutter_infra_release/releases",
+				"releases": []map[string]any{
+					{"version": "3.27.4", "archive": "stable/linux/flutter_linux_3.27.4-stable.tar.xz"},
+				},
+			})
+		case "/flutter_infra_release/releases/stable/linux/flutter_linux_3.27.4-stable.tar.xz":
+			w.Header().Set("Content-Type", "application/x-xz")
+			_, _ = w.Write([]byte("flutter-sdk-binary-stream"))
+		case "/api/packages/http":
+			w.Header().Set("Content-Type", pub.PubV2MediaType)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name": "http",
+				"versions": []map[string]any{{
+					"version":     "1.2.0",
+					"archive_url": mockStorage.URL + "/packages/http/versions/1.2.0.tar.gz",
+					"pubspec":     map[string]any{"name": "http", "version": "1.2.0"},
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mockStorage.Close()
+
+	ms := memstore.New()
+	fsStore, err := storage.NewFSBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewFSBlobStore: %v", err)
+	}
+	storageSvc := storage.NewService(fsStore, ms)
+	cacheCoord := cache.NewCoordinator(storageSvc)
+	upClient := upstream.NewClient(10 * time.Second)
+	authSvc := auth.NewService(ms, time.Hour)
+	metricsCol := metrics.NewCollector(ms)
+	auditSvc := audit.NewService(ms)
+
+	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "adminpass")
+	_, adminToken, _, err := authSvc.Login(ctx, "admin", "adminpass", "test", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("admin login: %v", err)
+	}
+
+	mgr := registry.NewManager(ms, registry.ServiceDeps{
+		Storage:  storageSvc,
+		Cache:    cacheCoord,
+		Upstream: upClient,
+		Auth:     authSvc,
+		Metrics:  metricsCol,
+		Audit:    auditSvc,
+	})
+	if err := mgr.RegisterType(pub.Registration(pub.NewMemoryStore())); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterType(flutter.Registration(flutter.NewMemoryStore())); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both Pub and Flutter Storage can be default compatibility instances simultaneously!
+	_, err = mgr.CreateInstance(ctx, &registry.Instance{
+		Name:        "Pub Public",
+		Slug:        "pub-public",
+		Type:        pub.RegistryType,
+		Enabled:     true,
+		Mode:        registry.ModeHybrid,
+		UpstreamURL: mockStorage.URL,
+		Visibility:  registry.VisibilityPublic,
+		AuthPolicy:  registry.AuthPolicy{AllowAnonymousRead: true, RequireAuthPublish: true},
+		CachePolicy: registry.DefaultCachePolicy(),
+		IsDefault:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flInst, err := mgr.CreateInstance(ctx, &registry.Instance{
+		Name:        "Flutter Storage",
+		Slug:        "flutter-storage",
+		Type:        flutter.RegistryType,
+		Enabled:     true,
+		Mode:        registry.ModeProxy,
+		UpstreamURL: mockStorage.URL,
+		UpstreamConfig: &registry.UpstreamConfig{
+			AuthType:      "bearer",
+			AuthToken:     "initial-upstream-secret",
+			CustomHeaders: map[string]string{"X-Mirror-Env": "ci-test"},
+		},
+		Visibility:  registry.VisibilityPublic,
+		AuthPolicy:  registry.AuthPolicy{AllowAnonymousRead: true},
+		CachePolicy: registry.DefaultCachePolicy(),
+		Config: map[string]any{
+			"manifest_ttl_seconds":  0,
+			"rewrite_manifest_urls": true,
+		},
+		IsDefault: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settings := admin.DefaultSettings("", true)
+	adminHandler := admin.NewHandler(mgr, authSvc, storageSvc, cacheCoord, metricsCol, auditSvc, ms, settings)
+	adminHandler.SetUpstreamClient(upClient)
+
+	srv := server.New(server.Options{
+		Manager:      mgr,
+		AdminHandler: adminHandler,
+		PublicBaseURLFunc: func() string {
+			return adminHandler.CurrentSettings().PublicBaseURL
+		},
+		EnableRootCompatRoute: func() bool {
+			return adminHandler.CurrentSettings().EnableRootCompatRoute
+		},
+	})
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	client := ts.Client()
+
+	// 1. Multi-type root compatibility: BOTH Pub (/api/packages/http) AND Flutter (/flutter_infra_release/...) work concurrently!
+	pubRootResp, err := client.Get(ts.URL + "/api/packages/http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pubRootResp.Body.Close()
+	if pubRootResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on Pub root compat route, got %d", pubRootResp.StatusCode)
+	}
+
+	flRootResp, err := client.Get(ts.URL + "/flutter_infra_release/releases/releases_linux.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rootManifest map[string]any
+	_ = json.NewDecoder(flRootResp.Body).Decode(&rootManifest)
+	_ = flRootResp.Body.Close()
+	if flRootResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on Flutter root compat route, got %d", flRootResp.StatusCode)
+	}
+	if want := ts.URL + "/flutter_infra_release/releases"; rootManifest["base_url"] != want {
+		t.Fatalf("expected root compat rewritten base_url %q, got %v", want, rootManifest["base_url"])
+	}
+	if gotAuth, _ := seenAuth.Load().(string); gotAuth != "Bearer initial-upstream-secret" {
+		t.Fatalf("expected upstream auth header forwarded, got %q", gotAuth)
+	}
+	if gotCustom, _ := seenCustomHeader.Load().(string); gotCustom != "ci-test" {
+		t.Fatalf("expected custom header forwarded, got %q", gotCustom)
+	}
+
+	// 2. Live Admin Settings update: change public_base_url, user_agent, and toggle root compat route!
+	settingsPayload := `{
+		"site_title": "Mirror Registry Custom",
+		"public_base_url": "https://cdn.mirror.local",
+		"enable_root_compat_route": false,
+		"audit_retention_days": 30,
+		"stats_retention_days": 60,
+		"upstream_timeout_seconds": 45,
+		"upstream_user_agent": "CustomMirrorAgent/2.0",
+		"default_pub_upstream_url": "https://pub.dev",
+		"default_flutter_storage_url": "https://storage.googleapis.com"
+	}`
+	reqSet, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/admin/settings", strings.NewReader(settingsPayload))
+	reqSet.Header.Set("Authorization", "Bearer "+adminToken)
+	reqSet.Header.Set("Content-Type", "application/json")
+	respSet, err := client.Do(reqSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = respSet.Body.Close()
+	if respSet.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating settings, got %d", respSet.StatusCode)
+	}
+
+	// Root compat route is immediately disabled (404)
+	disRootResp, err := client.Get(ts.URL + "/flutter_infra_release/releases/releases_linux.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = disRootResp.Body.Close()
+	if disRootResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 after disabling root compat route, got %d", disRootResp.StatusCode)
+	}
+
+	// /r/flutter-storage immediately uses live updated public_base_url & upstream User-Agent!
+	slugResp, err := client.Get(ts.URL + "/r/flutter-storage/flutter_infra_release/releases/releases_linux.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var slugManifest map[string]any
+	_ = json.NewDecoder(slugResp.Body).Decode(&slugManifest)
+	_ = slugResp.Body.Close()
+	if slugResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on /r/flutter-storage, got %d", slugResp.StatusCode)
+	}
+	if want := "https://cdn.mirror.local/r/flutter-storage/flutter_infra_release/releases"; slugManifest["base_url"] != want {
+		t.Fatalf("expected live updated public_base_url %q, got %v", want, slugManifest["base_url"])
+	}
+	if gotUA, _ := seenUA.Load().(string); gotUA != "CustomMirrorAgent/2.0" {
+		t.Fatalf("expected live updated User-Agent, got %q", gotUA)
+	}
+
+	// 3. Per-registry upstream secret masking + secret preservation on PUT update + POST /api/admin/upstream/test
+	getRegReq, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/admin/registries/"+flInst.ID, nil)
+	getRegReq.Header.Set("Authorization", "Bearer "+adminToken)
+	getRegResp, err := client.Do(getRegReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var regView struct {
+		UpstreamConfig *registry.UpstreamConfig `json:"upstream_config"`
+	}
+	_ = json.NewDecoder(getRegResp.Body).Decode(&regView)
+	_ = getRegResp.Body.Close()
+	if regView.UpstreamConfig == nil || regView.UpstreamConfig.AuthToken != "" || !regView.UpstreamConfig.HasAuthSecret {
+		t.Fatalf("expected masked upstream auth token with has_auth_secret=true, got %+v", regView.UpstreamConfig)
+	}
+
+	// Update Flutter registry without re-entering auth_token -> secret must be preserved!
+	updPayload := fmt.Sprintf(`{
+		"name": "Flutter Storage Updated",
+		"mode": "proxy",
+		"upstream_url": %q,
+		"upstream_config": {
+			"auth_type": "bearer",
+			"auth_token": "",
+			"custom_headers": {"X-Mirror-Env": "prod-updated"}
+		},
+		"visibility": "public",
+		"auth_policy": {"allow_anonymous_read": true},
+		"is_default": true,
+		"config": {"manifest_ttl_seconds": 0, "rewrite_manifest_urls": true}
+	}`, mockStorage.URL)
+	updReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/admin/registries/"+flInst.ID, strings.NewReader(updPayload))
+	updReq.Header.Set("Authorization", "Bearer "+adminToken)
+	updReq.Header.Set("Content-Type", "application/json")
+	updResp, err := client.Do(updReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = updResp.Body.Close()
+	if updResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating flutter registry, got %d", updResp.StatusCode)
+	}
+
+	// Test POST /api/admin/upstream/test reusing stored secret via registry_id
+	testPayload := fmt.Sprintf(`{
+		"url": %q,
+		"registry_id": %q,
+		"upstream_config": {"auth_type": "bearer"}
+	}`, mockStorage.URL+"/flutter_infra_release/releases/releases_linux.json", flInst.ID)
+	testReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/admin/upstream/test", strings.NewReader(testPayload))
+	testReq.Header.Set("Authorization", "Bearer "+adminToken)
+	testReq.Header.Set("Content-Type", "application/json")
+	testResp, err := client.Do(testReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var testRes upstream.HealthCheckResult
+	_ = json.NewDecoder(testResp.Body).Decode(&testRes)
+	_ = testResp.Body.Close()
+	if testResp.StatusCode != http.StatusOK || !testRes.Available || testRes.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful upstream test, got status=%d res=%+v", testResp.StatusCode, testRes)
+	}
+	if gotAuth, _ := seenAuth.Load().(string); gotAuth != "Bearer initial-upstream-secret" {
+		t.Fatalf("expected preserved upstream auth secret on test call, got %q", gotAuth)
+	}
 }
