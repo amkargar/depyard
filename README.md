@@ -21,9 +21,16 @@ Compiled registry modules built on the ecosystem-agnostic core:
   - Configurable release-manifest source (`releases_base_url`) for regional mirrors, plus configurable version-registry TTL.
   - Automatically rewrites `base_url` in Flutter release manifests (`releases_*.json`) to point to your mirror (also handles CDN-hosted manifests whose `base_url` host differs from the fetch host), with configurable manifest TTL and stale-while-error fallback.
   - Streams large SDK/engine binaries directly from content-addressed storage with HTTP Range (`206 Partial Content`), `HEAD`, singleflight download deduplication, and SHA-256 verification.
-- **Multi-Type Root Compatibility & `/r/<slug>` Routing**:
+- **Go Module Proxy (`GOPROXY`)**:
+  - Implements the official Go module proxy protocol: `GET /r/<slug>/<module>/@v/list`, `.info`, `.mod`, and `.zip` — with strict 404s for anything else (never a directory listing).
+  - Proxies and caches module metadata, `go.mod` files, and source zips from `proxy.golang.org` or any GOPROXY-compatible upstream, with singleflight download deduplication and a local `X-Registry-Cache: HIT` on repeat downloads.
+  - Go-accurate module path validation (traversal protection) and semantic version ordering, including pseudo-version detection.
+  - Per-instance policies: allowed / blocked / protected module patterns, module size cap, and pre-release filtering.
+  - Ships a public **Go Module Proxy** explorer (`/explore/<slug>`) with a module directory, per-module version tables, and copyable `GOPROXY=` / `go get` snippets. See [docs/go-module-proxy.md](docs/go-module-proxy.md).
+- **Multi-Type Root Compatibility & `/r/<slug>` Routing`:
   - Every registry instance operates under its own isolated `/r/<slug>` base path.
   - Optional root-level compatibility routing serves both the default Pub instance (`/api/packages/*`, `/packages/*`) and the default Flutter Storage instance (`/flutter_infra_release/*`, `/flutter_infra/*`, `/download.flutter.io/*`, `/dart-archive/*`) simultaneously.
+- **Custom Application-Styled Dropdowns**: every select in the Admin Console and the public explorers uses a custom accessible listbox (`role="combobox"` + `role="listbox"`) instead of the browser's native `<select>` popup, which ignores the app theme and renders inconsistently across operating systems. Full keyboard support (Arrow keys, Home/End, Enter/Space, Escape), check marks on the active value, outside-click dismissal, and viewport-safe positioning.
 - **Self-Hosted Roboto UI Font**: Roboto (SIL Open Font License 1.1) is bundled with the frontend under `frontend/public/fonts/roboto` and is the default UI typeface — no external font CDN is required, so air-gapped deployments render identically.
 - **Live Admin Settings & Upstream Management**:
   - Edit global platform settings (`site_title`, `public_base_url`, root compatibility toggle, retention days) and global outbound upstream settings (`http`/`https`/`socks5` proxy URL, timeout, User-Agent, TLS verification, default Pub & Flutter upstream URLs) live from `/admin/settings`.
@@ -217,6 +224,33 @@ For private registries or publishing Dart packages:
 dart pub token add http://localhost/r/pub-private
 dart pub publish
 ```
+
+## Using with Go
+
+### Go Module Proxy (`GOPROXY`)
+
+```bash
+# Multi-registry isolated URL
+export GOPROXY="http://localhost/r/go-proxy"
+
+# Or root-level compatibility URL (when the Go proxy is the default instance)
+export GOPROXY="http://localhost"
+
+go get github.com/pkg/errors@v0.9.1
+go mod download
+```
+
+The proxy serves the standard protocol endpoints:
+
+```bash
+curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/list
+curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/v0.9.1.info
+curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/v0.9.1.mod
+curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/v0.9.1.zip
+```
+
+See [docs/go-module-proxy.md](docs/go-module-proxy.md) for configuration, caching
+behaviour, module path rules, and the explorer API.
 
 ## Local Development
 

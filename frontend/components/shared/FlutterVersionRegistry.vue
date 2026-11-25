@@ -62,6 +62,11 @@ const channels = computed(() => {
   return Array.from(set).sort()
 })
 
+const channelOptions = computed(() => [
+  { value: '', label: 'All Channels' },
+  ...channels.value.map((ch) => ({ value: ch, label: ch })),
+])
+
 const filtered = computed<FlutterVersionEntry[]>(() => {
   const q = search.value.trim().toLowerCase()
   return (data.value?.versions || []).filter((v) => {
@@ -210,10 +215,12 @@ onMounted(load)
           <Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <UiInput v-model="search" placeholder="Filter by version, Dart SDK, or commit hash..." class="pl-9" />
         </form>
-        <UiSelect v-model="channelFilter" class="w-40">
-          <option value="">All Channels</option>
-          <option v-for="ch in channels" :key="ch" :value="ch">{{ ch }}</option>
-        </UiSelect>
+        <UiSelect
+          v-model="channelFilter"
+          class="w-40"
+          :options="channelOptions"
+          aria-label="Filter by channel"
+        />
         <span class="text-xs text-muted-foreground">
           {{ filtered.length }} of {{ data.total_versions }} versions
         </span>

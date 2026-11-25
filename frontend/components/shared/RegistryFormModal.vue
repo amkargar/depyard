@@ -87,6 +87,45 @@ const supportedModes = computed<RepositoryMode[]>(
 
 const needsUpstream = computed(() => form.mode === 'proxy' || form.mode === 'hybrid')
 
+// --- Dropdown option lists (the custom UiSelect takes plain option arrays) ---
+
+const typeOptions = computed(() =>
+  props.types.map((t) => ({
+    value: t.type,
+    label: `${t.display_name} (${t.type})`,
+  })),
+)
+
+const MODE_LABELS: Record<string, string> = {
+  proxy: 'Proxy (Upstream Cache)',
+  hosted: 'Hosted (Local Publish)',
+  hybrid: 'Hybrid (Hosted + Upstream Proxy)',
+}
+
+const modeOptions = computed(() =>
+  supportedModes.value.map((m) => ({
+    value: m,
+    label: MODE_LABELS[m] ?? m,
+  })),
+)
+
+const upstreamAuthOptions = computed(() => [
+  { value: '', label: 'None (Anonymous)' },
+  { value: 'bearer', label: 'Bearer Token' },
+  { value: 'basic', label: 'HTTP Basic Auth' },
+  { value: 'header', label: 'Custom Auth Header' },
+])
+
+const visibilityOptions = computed(() => [
+  { value: 'public', label: 'Public' },
+  { value: 'private', label: 'Private (Token / Auth Required)' },
+])
+
+const evictionPolicyOptions = computed(() => [
+  { value: 'lru', label: 'LRU (Least Recently Used)' },
+  { value: 'lfu', label: 'LFU (Least Frequently Used)' },
+])
+
 function defaultUpstreamForType(regType: string): string {
   if (regType === 'flutter') return platformDefaults.value.flutter || 'https://storage.googleapis.com'
   if (regType === 'pub') return platformDefaults.value.pub || 'https://pub.dev'
@@ -478,11 +517,12 @@ async function handleSubmit() {
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">Registry Type</label>
-          <UiSelect v-model="form.type" :disabled="Boolean(editing)">
-            <option v-for="t in types" :key="t.type" :value="t.type">
-              {{ t.display_name }} ({{ t.type }})
-            </option>
-          </UiSelect>
+          <UiSelect
+            v-model="form.type"
+            :disabled="Boolean(editing)"
+            :options="typeOptions"
+            aria-label="Registry type"
+          />
           <p class="text-[11px] text-muted-foreground">
             Only registry types compiled into this server are selectable.
           </p>
@@ -490,11 +530,11 @@ async function handleSubmit() {
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">Repository Mode</label>
-          <UiSelect v-model="form.mode">
-            <option v-for="m in supportedModes" :key="m" :value="m">
-              {{ m === 'proxy' ? 'Proxy (Upstream Cache)' : m === 'hosted' ? 'Hosted (Local Publish)' : 'Hybrid (Hosted + Upstream Proxy)' }}
-            </option>
-          </UiSelect>
+          <UiSelect
+            v-model="form.mode"
+            :options="modeOptions"
+            aria-label="Repository mode"
+          />
         </div>
       </div>
 
@@ -589,12 +629,11 @@ async function handleSubmit() {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div class="space-y-1">
             <label class="text-xs font-medium">Authentication Mode</label>
-            <UiSelect v-model="form.upstream_auth_type">
-              <option value="">None (Anonymous)</option>
-              <option value="bearer">Bearer Token</option>
-              <option value="basic">HTTP Basic Auth</option>
-              <option value="header">Custom Auth Header</option>
-            </UiSelect>
+            <UiSelect
+              v-model="form.upstream_auth_type"
+              :options="upstreamAuthOptions"
+              aria-label="Upstream authentication type"
+            />
           </div>
 
           <div v-if="form.upstream_auth_type === 'basic'" class="space-y-1">
@@ -690,10 +729,11 @@ async function handleSubmit() {
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">Visibility</label>
-          <UiSelect v-model="form.visibility">
-            <option value="public">Public</option>
-            <option value="private">Private (Token / Auth Required)</option>
-          </UiSelect>
+          <UiSelect
+            v-model="form.visibility"
+            :options="visibilityOptions"
+            aria-label="Registry visibility"
+          />
         </div>
 
         <div class="space-y-1.5">
@@ -746,10 +786,11 @@ async function handleSubmit() {
           </div>
           <div class="space-y-1">
             <label class="text-xs text-muted-foreground">Eviction Policy</label>
-            <UiSelect v-model="form.eviction_policy">
-              <option value="lru">LRU (Least Recently Used)</option>
-              <option value="lfu">LFU (Least Frequently Used)</option>
-            </UiSelect>
+            <UiSelect
+              v-model="form.eviction_policy"
+              :options="evictionPolicyOptions"
+              aria-label="Cache eviction policy"
+            />
           </div>
         </div>
       </div>
