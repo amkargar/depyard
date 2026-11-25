@@ -28,22 +28,23 @@ type Manager struct {
 	store InstanceStore
 	deps  ServiceDeps
 
-	mu        sync.RWMutex
-	types     map[string]Registration
-	byID      map[string]*RuntimeInstance
-	bySlug    map[string]*RuntimeInstance
-	byHost    map[string]*RuntimeInstance
-	defaultID string
+	mu             sync.RWMutex
+	types          map[string]Registration
+	byID           map[string]*RuntimeInstance
+	bySlug         map[string]*RuntimeInstance
+	byHost         map[string]*RuntimeInstance
+	defaultsByType map[string]string
 }
 
 func NewManager(store InstanceStore, deps ServiceDeps) *Manager {
 	return &Manager{
-		store:  store,
-		deps:   deps,
-		types:  make(map[string]Registration),
-		byID:   make(map[string]*RuntimeInstance),
-		bySlug: make(map[string]*RuntimeInstance),
-		byHost: make(map[string]*RuntimeInstance),
+		store:          store,
+		deps:           deps,
+		types:          make(map[string]Registration),
+		byID:           make(map[string]*RuntimeInstance),
+		bySlug:         make(map[string]*RuntimeInstance),
+		byHost:         make(map[string]*RuntimeInstance),
+		defaultsByType: make(map[string]string),
 	}
 }
 
@@ -75,12 +76,13 @@ func (m *Manager) ListTypes() []TypeInfo {
 	out := make([]TypeInfo, 0, len(m.types))
 	for _, r := range m.types {
 		out = append(out, TypeInfo{
-			Type:           r.Type,
-			DisplayName:    r.DisplayName,
-			Description:    r.Description,
-			Capabilities:   r.Capabilities,
-			SupportedModes: r.Capabilities.SupportedModes(),
-			ConfigHints:    r.ConfigHints,
+			Type:               r.Type,
+			DisplayName:        r.DisplayName,
+			Description:        r.Description,
+			DefaultUpstreamURL: r.DefaultUpstreamURL,
+			Capabilities:       r.Capabilities,
+			SupportedModes:     r.Capabilities.SupportedModes(),
+			ConfigHints:        r.ConfigHints,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Type < out[j].Type })
@@ -139,9 +141,9 @@ func (m *Manager) CreateInstance(ctx context.Context, inst *Instance) (*Instance
 		return nil, fmt.Errorf("initialize registry %q: %w", normalized.Slug, err)
 	}
 
-	// If this instance is marked default, clear previous default flag.
+	// If this instance is marked default, clear previous default flag for the same registry type.
 	if normalized.IsDefault {
-		m.clearOtherDefaults(ctx, "")
+		m.clearOtherDefaults(ctx, normalized.Type, "")
 	}
 
 	if err := m.store.CreateInstance(ctx, normalized); err != nil {
@@ -173,6 +175,15 @@ func (m *Manager) UpdateInstance(ctx context.Context, id string, patch *Instance
 		updated.Mode = patch.Mode
 	}
 	updated.UpstreamURL = patch.UpstreamURL
+	if patch.UpstreamConfig != nil {
+		uc := patch.UpstreamConfig.Clone()
+		// Preserve existing upstream auth token if admin left the secret input blank without clearing auth_type.
+		authType := strings.ToLower(strings.TrimSpace(uc.AuthType))
+		if uc.AuthToken == "" && authType != "" && authType != "none" && existing.UpstreamConfig != nil {
+			uc.AuthToken = existing.UpstreamConfig.AuthToken
+		}
+		updated.UpstreamConfig = uc
+	}
 	if patch.Visibility != "" {
 		updated.Visibility = patch.Visibility
 	}
@@ -202,7 +213,7 @@ func (m *Manager) UpdateInstance(ctx context.Context, id string, patch *Instance
 	}
 
 	if normalized.IsDefault && !existing.IsDefault {
-		m.clearOtherDefaults(ctx, normalized.ID)
+		m.clearOtherDefaults(ctx, normalized.Type, normalized.ID)
 	}
 
 	if err := m.store.UpdateInstance(ctx, normalized); err != nil {
@@ -261,8 +272,8 @@ func (m *Manager) DeleteInstance(ctx context.Context, id string) error {
 	if inst.Hostname != "" {
 		delete(m.byHost, strings.ToLower(inst.Hostname))
 	}
-	if m.defaultID == id {
-		m.defaultID = ""
+	if m.defaultsByType[inst.Type] == id {
+		delete(m.defaultsByType, inst.Type)
 	}
 	m.mu.Unlock()
 
@@ -333,11 +344,53 @@ func (m *Manager) GetRuntimeByHostname(host string) (*RuntimeInstance, bool) {
 func (m *Manager) GetDefaultRuntime() (*RuntimeInstance, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.defaultID == "" {
+	if len(m.defaultsByType) == 0 {
 		return nil, false
 	}
-	rt, ok := m.byID[m.defaultID]
+	types := make([]string, 0, len(m.defaultsByType))
+	for t := range m.defaultsByType {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	for _, t := range types {
+		if rt, ok := m.byID[m.defaultsByType[t]]; ok {
+			return rt, true
+		}
+	}
+	return nil, false
+}
+
+// GetDefaultRuntimeForType returns the default compatibility runtime for a specific registry type.
+func (m *Manager) GetDefaultRuntimeForType(regType string) (*RuntimeInstance, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.defaultsByType[strings.ToLower(strings.TrimSpace(regType))]
+	if !ok || id == "" {
+		return nil, false
+	}
+	rt, ok := m.byID[id]
 	return rt, ok
+}
+
+// GetCompatRuntimes returns all enabled default runtimes (one per registry type) for root compatibility routing.
+func (m *Manager) GetCompatRuntimes() []*RuntimeInstance {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.defaultsByType) == 0 {
+		return nil
+	}
+	types := make([]string, 0, len(m.defaultsByType))
+	for t := range m.defaultsByType {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	out := make([]*RuntimeInstance, 0, len(types))
+	for _, t := range types {
+		if rt, ok := m.byID[m.defaultsByType[t]]; ok && rt.Instance.Enabled {
+			out = append(out, rt)
+		}
+	}
+	return out
 }
 
 func (m *Manager) AllRuntimes() []*RuntimeInstance {
@@ -384,6 +437,12 @@ func (m *Manager) validateAndNormalize(inst *Instance, isCreate bool) (*Instance
 		u, err := url.Parse(cp.UpstreamURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, Registration{}, fmt.Errorf("%w: upstream_url %q must be a valid http or https URL", ErrInvalidConfig, cp.UpstreamURL)
+		}
+	}
+
+	if cp.UpstreamConfig != nil {
+		if err := cp.UpstreamConfig.Validate(); err != nil {
+			return nil, Registration{}, err
 		}
 	}
 
@@ -455,20 +514,20 @@ func (m *Manager) installRuntime(rt *RuntimeInstance) *RuntimeInstance {
 		m.byHost[strings.ToLower(rt.Instance.Hostname)] = rt
 	}
 	if rt.Instance.IsDefault {
-		m.defaultID = rt.Instance.ID
-	} else if m.defaultID == rt.Instance.ID {
-		m.defaultID = ""
+		m.defaultsByType[rt.Instance.Type] = rt.Instance.ID
+	} else if m.defaultsByType[rt.Instance.Type] == rt.Instance.ID {
+		delete(m.defaultsByType, rt.Instance.Type)
 	}
 	return old
 }
 
-func (m *Manager) clearOtherDefaults(ctx context.Context, exceptID string) {
+func (m *Manager) clearOtherDefaults(ctx context.Context, regType, exceptID string) {
 	instances, err := m.store.ListInstances(ctx)
 	if err != nil {
 		return
 	}
 	for _, inst := range instances {
-		if inst.ID == exceptID || !inst.IsDefault {
+		if inst.ID == exceptID || !inst.IsDefault || inst.Type != regType {
 			continue
 		}
 		inst.IsDefault = false

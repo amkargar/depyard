@@ -13,8 +13,13 @@ const errorMsg = ref('')
 const registries = ref<PublicRegistryView[]>([])
 const rootCompat = ref(true)
 
+const defaultRegistries = computed(() => registries.value.filter((r) => r.is_default))
 const defaultRegistry = computed(
-  () => registries.value.find((r) => r.is_default) ?? registries.value[0] ?? null,
+  () =>
+    defaultRegistries.value.find((r) => r.type === 'pub') ??
+    defaultRegistries.value[0] ??
+    registries.value[0] ??
+    null,
 )
 
 onMounted(async () => {
@@ -77,9 +82,11 @@ onMounted(async () => {
             Each registry instance operates under its own isolated base URL <code class="font-mono text-xs">/r/&lt;slug&gt;</code>.
           </p>
         </div>
-        <UiBadge v-if="rootCompat && defaultRegistry" variant="success">
-          Root compatibility route enabled → {{ defaultRegistry.slug }}
-        </UiBadge>
+        <div v-if="rootCompat && defaultRegistries.length > 0" class="flex flex-wrap items-center gap-1.5">
+          <UiBadge v-for="def in defaultRegistries" :key="def.id" variant="success">
+            Root compat ({{ def.type }}) → {{ def.slug }}
+          </UiBadge>
+        </div>
       </div>
 
       <SharedErrorBanner :message="errorMsg" class="mb-6" />
