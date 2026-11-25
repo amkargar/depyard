@@ -17,7 +17,7 @@ import (
 type Server struct {
 	manager               *registry.Manager
 	adminHandler          *admin.Handler
-	publicBaseURL         string
+	publicBaseURLFunc     func() string
 	enableRootCompatRoute func() bool
 	allowedOrigins        []string
 }
@@ -26,6 +26,7 @@ type Options struct {
 	Manager               *registry.Manager
 	AdminHandler          *admin.Handler
 	PublicBaseURL         string
+	PublicBaseURLFunc     func() string
 	EnableRootCompatRoute func() bool
 	AllowedOrigins        []string
 }
@@ -35,10 +36,15 @@ func New(opts Options) *Server {
 	if compatFn == nil {
 		compatFn = func() bool { return true }
 	}
+	baseURLFn := opts.PublicBaseURLFunc
+	if baseURLFn == nil {
+		staticBase := strings.TrimRight(opts.PublicBaseURL, "/")
+		baseURLFn = func() string { return staticBase }
+	}
 	return &Server{
 		manager:               opts.Manager,
 		adminHandler:          opts.AdminHandler,
-		publicBaseURL:         strings.TrimRight(opts.PublicBaseURL, "/"),
+		publicBaseURLFunc:     baseURLFn,
 		enableRootCompatRoute: compatFn,
 		allowedOrigins:        opts.AllowedOrigins,
 	}
@@ -82,9 +88,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional backward-compatible root routing for the default registry instance
+	// Optional backward-compatible root routing across default registry instances (e.g. PUB_HOSTED_URL & FLUTTER_STORAGE_BASE_URL)
 	if s.enableRootCompatRoute() {
-		if rt, ok := s.manager.GetDefaultRuntime(); ok && rt.Instance.Enabled {
+		for _, rt := range s.manager.GetCompatRuntimes() {
 			if matcher, ok := rt.Registry.(registry.CompatPathMatcher); ok && matcher.MatchesCompatPath(r.URL.Path) {
 				s.dispatchToRuntime(w, r, rt, s.resolveOrigin(r), false)
 				return
@@ -168,8 +174,10 @@ func stripPrefixPreservingEncoding(r *http.Request, prefix, subEscaped string) *
 }
 
 func (s *Server) resolveOrigin(r *http.Request) string {
-	if s.publicBaseURL != "" {
-		return s.publicBaseURL
+	if s.publicBaseURLFunc != nil {
+		if base := strings.TrimRight(strings.TrimSpace(s.publicBaseURLFunc()), "/"); base != "" {
+			return base
+		}
 	}
 	scheme := "http"
 	if r.TLS != nil {

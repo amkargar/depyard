@@ -146,7 +146,7 @@ func (r *PubRegistry) syncPackageFromUpstream(ctx context.Context, name string, 
 	headers := map[string]string{
 		"Accept": PubV2MediaType,
 	}
-	resp, err := r.deps.Upstream.Get(ctx, upstreamURL, headers, r.upstreamTimeout())
+	resp, err := r.deps.Upstream.GetWithOptions(ctx, upstreamURL, r.inst.UpstreamRequestOptions(headers, r.upstreamTimeout()))
 	if err != nil {
 		r.deps.Metrics.RecordUpstreamError(r.inst.ID)
 		return nil, nil, fmt.Errorf("upstream request failed: %w", err)
@@ -311,7 +311,7 @@ func (r *PubRegistry) ensureArchiveCached(ctx context.Context, pkgName, version 
 			)
 		}
 
-		resp, err := r.deps.Upstream.Get(ctx, dlURL, nil, r.upstreamTimeout()*2)
+		resp, err := r.deps.Upstream.GetWithOptions(ctx, dlURL, r.inst.UpstreamRequestOptions(nil, r.upstreamTimeout()*2))
 		if err != nil {
 			r.deps.Metrics.RecordUpstreamError(r.inst.ID)
 			return nil, fmt.Errorf("download upstream archive: %w", err)
