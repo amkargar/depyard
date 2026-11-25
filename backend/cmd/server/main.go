@@ -20,6 +20,7 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/config"
 	"github.com/amkargar/mirror-registry/backend/internal/metrics"
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
 	"github.com/amkargar/mirror-registry/backend/internal/server"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
@@ -45,6 +46,7 @@ func main() {
 		auditStore    audit.Store
 		settingsStore admin.SettingsStore
 		pubStore      pub.MetadataStore
+		flutterStore  flutter.MetadataStore
 		closeStore    func(context.Context) error
 	)
 
@@ -58,6 +60,7 @@ func main() {
 		auditStore = ms
 		settingsStore = ms
 		pubStore = pub.NewMemoryStore()
+		flutterStore = flutter.NewMemoryStore()
 	} else {
 		mongoDB, err := mongostore.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase)
 		if err != nil {
@@ -78,6 +81,13 @@ func main() {
 			os.Exit(1)
 		}
 		pubStore = ps
+
+		fs, err := flutter.NewMongoStore(ctx, mongoDB.Database())
+		if err != nil {
+			logger.Error("failed to initialize flutter storage metadata store", "error", err)
+			os.Exit(1)
+		}
+		flutterStore = fs
 		logger.Info("connected to MongoDB", "database", cfg.MongoDatabase)
 	}
 	if closeStore != nil {
@@ -126,6 +136,10 @@ func main() {
 		logger.Error("failed to register pub registry type", "error", err)
 		os.Exit(1)
 	}
+	if err := regManager.RegisterType(flutter.Registration(flutterStore)); err != nil {
+		logger.Error("failed to register flutter storage registry type", "error", err)
+		os.Exit(1)
+	}
 
 	// Load all persisted registry instances
 	if err := regManager.LoadAll(ctx); err != nil {
@@ -133,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Backward compatibility: seed a default Pub registry instance on initial install
+	// Backward compatibility: seed default Pub and Flutter Storage instances on initial empty install
 	if cfg.SeedDefaultRegistry {
 		instances, err := regManager.ListInstances(ctx)
 		if err == nil && len(instances) == 0 {
@@ -162,6 +176,37 @@ func main() {
 			} else {
 				logger.Info("seeded default registry instance", "slug", defInst.Slug, "type", defInst.Type, "mode", defInst.Mode)
 			}
+
+			if cfg.SeedFlutterStorage {
+				flInst, flErr := regManager.CreateInstance(ctx, &registry.Instance{
+					Name:        cfg.DefaultFlutterName,
+					Slug:        cfg.DefaultFlutterSlug,
+					Type:        flutter.RegistryType,
+					Description: "Mirror for Flutter SDK releases, engine artifacts, and Gradle Maven storage (FLUTTER_STORAGE_BASE_URL).",
+					Enabled:     true,
+					Mode:        registry.ModeProxy,
+					UpstreamURL: cfg.DefaultFlutterUpstreamURL,
+					Visibility:  registry.VisibilityPublic,
+					AuthPolicy: registry.AuthPolicy{
+						AllowAnonymousRead: true,
+						RequireAuthPublish: true,
+					},
+					CachePolicy: registry.DefaultCachePolicy(),
+					Config: map[string]any{
+						"allowed_prefixes":         flutter.DefaultAllowedPrefixes,
+						"manifest_ttl_seconds":     300,
+						"rewrite_manifest_urls":    true,
+						"serve_stale_on_error":     true,
+						"upstream_timeout_seconds": 300,
+					},
+					IsDefault: true,
+				})
+				if flErr != nil {
+					logger.Warn("could not seed default flutter storage instance", "error", flErr)
+				} else {
+					logger.Info("seeded default flutter storage instance", "slug", flInst.Slug, "type", flInst.Type, "mode", flInst.Mode)
+				}
+			}
 		}
 	}
 
@@ -172,6 +217,13 @@ func main() {
 
 	// Global platform settings
 	defaultSettings := admin.DefaultSettings(cfg.PublicBaseURL, cfg.EnableRootCompatRoute)
+	defaultSettings.UpstreamProxyURL = cfg.UpstreamProxyURL
+	defaultSettings.DefaultPubUpstreamURL = cfg.DefaultUpstreamURL
+	defaultSettings.DefaultFlutterStorageURL = cfg.DefaultFlutterUpstreamURL
+	if cfg.UpstreamDefaultTimeout > 0 {
+		defaultSettings.UpstreamTimeoutSeconds = int(cfg.UpstreamDefaultTimeout.Seconds())
+	}
+	defaultSettings.Normalize()
 	if existingSettings, err := settingsStore.GetSettings(ctx); err == nil && existingSettings != nil {
 		existingSettings.Normalize()
 		defaultSettings = existingSettings
@@ -263,7 +315,7 @@ func seedDemoData(ctx context.Context, logger *slog.Logger, manager *registry.Ma
 		})
 	}
 
-	rt, ok := manager.GetDefaultRuntime()
+	rt, ok := manager.GetDefaultRuntimeForType(pub.RegistryType)
 	if !ok {
 		return
 	}
