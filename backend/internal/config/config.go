@@ -1,0 +1,114 @@
+package config
+
+import (
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Config holds application-level configuration.
+// It remains strictly ecosystem-agnostic; registry-specific settings live on each registry instance.
+type Config struct {
+	ListenAddr             string
+	PublicBaseURL          string
+	DataDir                string
+	StorageBackend         string // "mongo" (default) or "memory" (dev/testing)
+	MongoURI               string
+	MongoDatabase          string
+	EnableRootCompatRoute  bool
+	DefaultRegistrySlug    string
+	DefaultRegistryName    string
+	DefaultRegistryType    string
+	DefaultRegistryMode    string
+	DefaultUpstreamURL     string
+	SeedDefaultRegistry    bool
+	AdminUsername          string
+	AdminPassword          string
+	AdminEmail             string
+	SessionTTL             time.Duration
+	CacheEvictionInterval  time.Duration
+	HealthCheckInterval    time.Duration
+	StatsFlushInterval     time.Duration
+	UpstreamDefaultTimeout time.Duration
+	AllowedOrigins         []string
+	SeedDemoPackages       bool
+}
+
+// Load reads configuration from environment variables with sensible defaults.
+func Load() Config {
+	return Config{
+		ListenAddr:             getEnv("LISTEN_ADDR", "0.0.0.0:8080"),
+		PublicBaseURL:          strings.TrimRight(getEnv("PUBLIC_BASE_URL", ""), "/"),
+		DataDir:                getEnv("DATA_DIR", "./data"),
+		StorageBackend:         strings.ToLower(getEnv("STORAGE_BACKEND", "mongo")),
+		MongoURI:               getEnv("MONGODB_URI", "mongodb://localhost:27017"),
+		MongoDatabase:          getEnv("MONGODB_DATABASE", "mirror_registry"),
+		EnableRootCompatRoute:  getEnvBool("ENABLE_ROOT_COMPAT_ROUTE", true),
+		DefaultRegistrySlug:    getEnv("DEFAULT_REGISTRY_SLUG", "pub-public"),
+		DefaultRegistryName:    getEnv("DEFAULT_REGISTRY_NAME", "Pub Public Mirror"),
+		DefaultRegistryType:    getEnv("DEFAULT_REGISTRY_TYPE", "pub"),
+		DefaultRegistryMode:    getEnv("DEFAULT_REGISTRY_MODE", "hybrid"),
+		DefaultUpstreamURL:     getEnv("DEFAULT_UPSTREAM_URL", "https://pub.dev"),
+		SeedDefaultRegistry:    getEnvBool("SEED_DEFAULT_REGISTRY", true),
+		AdminUsername:          getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:          getEnv("ADMIN_PASSWORD", "admin123"),
+		AdminEmail:             getEnv("ADMIN_EMAIL", "admin@localhost"),
+		SessionTTL:             getEnvDuration("SESSION_TTL", 24*time.Hour),
+		CacheEvictionInterval:  getEnvDuration("CACHE_EVICTION_INTERVAL", 5*time.Minute),
+		HealthCheckInterval:    getEnvDuration("HEALTH_CHECK_INTERVAL", 2*time.Minute),
+		StatsFlushInterval:     getEnvDuration("STATS_FLUSH_INTERVAL", 30*time.Second),
+		UpstreamDefaultTimeout: getEnvDuration("UPSTREAM_TIMEOUT", 30*time.Second),
+		AllowedOrigins:         getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
+		SeedDemoPackages:       getEnvBool("SEED_DEMO_PACKAGES", false),
+	}
+}
+
+func getEnv(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
+}
+
+func getEnvSlice(key string, fallback []string) []string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
+}

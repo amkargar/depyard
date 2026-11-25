@@ -1,0 +1,42 @@
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8080
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DATABASE: mirror_registry
+      DATA_DIR: /data
+      ENABLE_ROOT_COMPAT_ROUTE: "true"
+      DEFAULT_REGISTRY_SLUG: pub-public
+      DEFAULT_REGISTRY_NAME: Pub Public Mirror
+      DEFAULT_REGISTRY_MODE: hybrid
+      DEFAULT_UPSTREAM_URL: https://pub.dev
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: changeme123
+    volumes:
+      - registry_blobs:/data
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NUXT_BACKEND_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+
+volumes:
+  mongo_data:
+  registry_blobs:
