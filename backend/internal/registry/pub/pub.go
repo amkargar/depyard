@@ -98,10 +98,11 @@ func PubCapabilities() registry.Capabilities {
 // Registration returns the in-process registration descriptor used by the composition root.
 func Registration(store MetadataStore) registry.Registration {
 	return registry.Registration{
-		Type:         RegistryType,
-		DisplayName:  "Dart / Flutter Pub",
-		Description:  "Official Dart & Flutter Pub hosted repository v2 (proxy, hosted, and hybrid with namespace protection).",
-		Capabilities: PubCapabilities(),
+		Type:               RegistryType,
+		DisplayName:        "Dart / Flutter Pub",
+		Description:        "Official Dart & Flutter Pub hosted repository v2 (proxy, hosted, and hybrid with namespace protection).",
+		DefaultUpstreamURL: "https://pub.dev",
+		Capabilities:       PubCapabilities(),
 		ConfigHints: []registry.ConfigFieldHint{
 			{
 				Key:          "upstream_timeout_seconds",
@@ -306,7 +307,7 @@ func (r *PubRegistry) CheckHealth(ctx context.Context) upstream.HealthCheckResul
 			CheckedAt: time.Now().UTC(),
 		}
 	}
-	return r.deps.Upstream.CheckHealth(ctx, r.inst.UpstreamURL, 5*time.Second)
+	return r.deps.Upstream.CheckHealthWithOptions(ctx, r.inst.UpstreamURL, r.inst.UpstreamRequestOptions(nil, 8*time.Second))
 }
 
 // MatchesCompatPath implements registry.CompatPathMatcher for backward-compatible root Pub routing.

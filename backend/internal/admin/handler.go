@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amkargar/mirror-registry/backend/internal/audit"
@@ -15,6 +17,7 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/metrics"
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/mirror-registry/backend/internal/upstream"
 )
 
 // Handler serves the registry-agnostic Admin REST API and public registry directory.
@@ -25,7 +28,9 @@ type Handler struct {
 	cache         *cache.Coordinator
 	metrics       *metrics.Collector
 	audit         *audit.Service
+	upstream      *upstream.Client
 	settingsStore SettingsStore
+	settingsMu    sync.RWMutex
 	defaultConfig *PlatformSettings
 	mux           *http.ServeMux
 }
@@ -40,6 +45,10 @@ func NewHandler(
 	settingsStore SettingsStore,
 	defaults *PlatformSettings,
 ) *Handler {
+	if defaults == nil {
+		defaults = DefaultSettings("", true)
+	}
+	defaults.Normalize()
 	h := &Handler{
 		manager:       manager,
 		auth:          authSvc,
@@ -53,6 +62,19 @@ func NewHandler(
 	}
 	h.registerRoutes()
 	return h
+}
+
+// SetUpstreamClient attaches the shared upstream HTTP client so live setting edits and connection tests apply immediately.
+func (h *Handler) SetUpstreamClient(c *upstream.Client) {
+	h.upstream = c
+}
+
+// CurrentSettings returns a thread-safe snapshot of the active global platform settings.
+func (h *Handler) CurrentSettings() PlatformSettings {
+	h.settingsMu.RLock()
+	defer h.settingsMu.RUnlock()
+	cp := *h.defaultConfig
+	return cp
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -103,10 +125,11 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/admin/stats/overview", h.requireAdmin(h.handleStatsOverview))
 	h.mux.HandleFunc("GET /api/admin/stats/registries/{id}", h.requireAdmin(h.handleRegistryStats))
 
-	// Audit Logs & Settings
+	// Audit Logs, Settings & Upstream Diagnostics
 	h.mux.HandleFunc("GET /api/admin/audit-logs", h.requireAdmin(h.handleAuditLogs))
 	h.mux.HandleFunc("GET /api/admin/settings", h.requireAdmin(h.handleGetSettings))
 	h.mux.HandleFunc("PUT /api/admin/settings", h.requireAdmin(h.handleUpdateSettings))
+	h.mux.HandleFunc("POST /api/admin/upstream/test", h.requireAdmin(h.handleTestUpstream))
 }
 
 type adminHandlerFunc func(w http.ResponseWriter, r *http.Request, principal *auth.Principal)
@@ -358,7 +381,7 @@ type EnrichedRegistry struct {
 
 func (h *Handler) enrichRegistry(ctx context.Context, inst *registry.Instance) EnrichedRegistry {
 	res := EnrichedRegistry{
-		Instance: inst,
+		Instance: inst.SanitizedClone(),
 		BasePath: "/r/" + inst.Slug,
 		Health:   "healthy",
 	}
@@ -434,10 +457,11 @@ func (h *Handler) handleCreateRegistry(w http.ResponseWriter, r *http.Request, p
 		Slug              string                  `json:"slug"`
 		Type              string                  `json:"type"`
 		Description       string                  `json:"description"`
-		Enabled           *bool                   `json:"enabled"`
-		Mode              registry.RepositoryMode `json:"mode"`
-		UpstreamURL       string                  `json:"upstream_url"`
-		Visibility        registry.Visibility     `json:"visibility"`
+		Enabled           *bool                    `json:"enabled"`
+		Mode              registry.RepositoryMode  `json:"mode"`
+		UpstreamURL       string                   `json:"upstream_url"`
+		UpstreamConfig    *registry.UpstreamConfig `json:"upstream_config"`
+		Visibility        registry.Visibility      `json:"visibility"`
 		AuthPolicy        *registry.AuthPolicy    `json:"auth_policy"`
 		StorageQuotaBytes int64                   `json:"storage_quota_bytes"`
 		CachePolicy       *registry.CachePolicy   `json:"cache_policy"`
@@ -474,6 +498,7 @@ func (h *Handler) handleCreateRegistry(w http.ResponseWriter, r *http.Request, p
 		Enabled:           enabled,
 		Mode:              body.Mode,
 		UpstreamURL:       body.UpstreamURL,
+		UpstreamConfig:    body.UpstreamConfig,
 		Visibility:        body.Visibility,
 		AuthPolicy:        authPol,
 		StorageQuotaBytes: body.StorageQuotaBytes,
@@ -1139,10 +1164,12 @@ func (h *Handler) getSettings(ctx context.Context) (*PlatformSettings, error) {
 	if h.settingsStore != nil {
 		st, err := h.settingsStore.GetSettings(ctx)
 		if err == nil && st != nil {
+			st.Normalize()
 			return st, nil
 		}
 	}
-	cp := *h.defaultConfig
+	cp := h.CurrentSettings()
+	cp.Normalize()
 	return &cp, nil
 }
 
@@ -1155,30 +1182,61 @@ func (h *Handler) handleGetSettings(w http.ResponseWriter, r *http.Request, _ *a
 	writeJSON(w, http.StatusOK, st)
 }
 
+func validateOptionalHTTPURL(field, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New(field + " must be a valid http or https URL")
+	}
+	return nil
+}
+
 func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	var body PlatformSettings
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON payload")
 		return
 	}
-	if body.SiteTitle == "" {
-		body.SiteTitle = "Mirror Registry"
+	if err := validateOptionalHTTPURL("public_base_url", body.PublicBaseURL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	if body.AuditRetentionDays <= 0 {
-		body.AuditRetentionDays = 90
+	if err := validateOptionalHTTPURL("default_pub_upstream_url", body.DefaultPubUpstreamURL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	if body.StatsRetentionDays <= 0 {
-		body.StatsRetentionDays = 90
+	if err := validateOptionalHTTPURL("default_flutter_storage_url", body.DefaultFlutterStorageURL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	if _, err := upstream.ValidateProxyURL(body.UpstreamProxyURL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	body.Normalize()
+	body.UpdatedAt = time.Now().UTC()
+
+	if h.upstream != nil {
+		if err := h.upstream.ApplyConfig(body.ToUpstreamConfig()); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
 	if h.settingsStore != nil {
 		if err := h.settingsStore.SaveSettings(r.Context(), &body); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
-	h.defaultConfig.SiteTitle = body.SiteTitle
-	h.defaultConfig.PublicBaseURL = strings.TrimRight(body.PublicBaseURL, "/")
-	h.defaultConfig.EnableRootCompatRoute = body.EnableRootCompatRoute
+
+	h.settingsMu.Lock()
+	*h.defaultConfig = body
+	h.settingsMu.Unlock()
 
 	h.audit.Record(r.Context(), audit.Entry{
 		ActorID:   principal.ActorID(),
@@ -1189,6 +1247,64 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request, p
 		Success:   true,
 	})
 	writeJSON(w, http.StatusOK, &body)
+}
+
+func (h *Handler) handleTestUpstream(w http.ResponseWriter, r *http.Request, _ *auth.Principal) {
+	var body struct {
+		URL                string                   `json:"url"`
+		RegistryID         string                   `json:"registry_id"`
+		UpstreamConfig     *registry.UpstreamConfig `json:"upstream_config"`
+		ProxyURL           string                   `json:"proxy_url"`
+		InsecureSkipVerify bool                     `json:"insecure_skip_verify"`
+		TimeoutSeconds     int                      `json:"timeout_seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	targetURL := strings.TrimSpace(body.URL)
+	if targetURL == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	if err := validateOptionalHTTPURL("url", targetURL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	uc := body.UpstreamConfig.Clone()
+	// If testing an existing registry without re-entering its saved auth secret, reuse stored secret safely.
+	if body.RegistryID != "" && uc != nil && uc.AuthToken == "" {
+		if existing, err := h.manager.GetInstance(r.Context(), body.RegistryID); err == nil && existing.UpstreamConfig != nil {
+			authType := strings.ToLower(strings.TrimSpace(uc.AuthType))
+			if authType != "" && authType != "none" {
+				uc.AuthToken = existing.UpstreamConfig.AuthToken
+			}
+		}
+	}
+
+	timeout := 10 * time.Second
+	if body.TimeoutSeconds > 0 {
+		timeout = time.Duration(body.TimeoutSeconds) * time.Second
+	}
+	opts := uc.BuildRequestOptions(nil, timeout)
+	if strings.TrimSpace(body.ProxyURL) != "" {
+		if _, err := upstream.ValidateProxyURL(body.ProxyURL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		opts.ProxyURL = strings.TrimSpace(body.ProxyURL)
+	}
+	if body.InsecureSkipVerify {
+		opts.InsecureSkipVerify = true
+	}
+
+	client := h.upstream
+	if client == nil {
+		client = upstream.NewClient(timeout)
+	}
+	res := client.CheckHealthWithOptions(r.Context(), targetURL, opts)
+	writeJSON(w, http.StatusOK, res)
 }
 
 // --- Helpers ---

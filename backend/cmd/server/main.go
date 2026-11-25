@@ -173,9 +173,13 @@ func main() {
 	// Global platform settings
 	defaultSettings := admin.DefaultSettings(cfg.PublicBaseURL, cfg.EnableRootCompatRoute)
 	if existingSettings, err := settingsStore.GetSettings(ctx); err == nil && existingSettings != nil {
+		existingSettings.Normalize()
 		defaultSettings = existingSettings
 	} else {
 		_ = settingsStore.SaveSettings(ctx, defaultSettings)
+	}
+	if err := upstreamClient.ApplyConfig(defaultSettings.ToUpstreamConfig()); err != nil {
+		logger.Warn("failed to apply persisted upstream settings", "error", err)
 	}
 
 	adminHandler := admin.NewHandler(
@@ -188,12 +192,13 @@ func main() {
 		settingsStore,
 		defaultSettings,
 	)
+	adminHandler.SetUpstreamClient(upstreamClient)
 
 	srv := server.New(server.Options{
 		Manager:               regManager,
 		AdminHandler:          adminHandler,
-		PublicBaseURL:         cfg.PublicBaseURL,
-		EnableRootCompatRoute: func() bool { return defaultSettings.EnableRootCompatRoute },
+		PublicBaseURLFunc:     func() string { return adminHandler.CurrentSettings().PublicBaseURL },
+		EnableRootCompatRoute: func() bool { return adminHandler.CurrentSettings().EnableRootCompatRoute },
 		AllowedOrigins:        cfg.AllowedOrigins,
 	})
 
