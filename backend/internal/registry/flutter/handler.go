@@ -22,6 +22,9 @@ import (
 func (r *FlutterRegistry) registerRoutes() {
 	// Explorer JSON listing API for the isolated Flutter Storage UI
 	r.mux.HandleFunc("GET /api/artifacts", r.handleListArtifactsAPI)
+	// Per-version Flutter SDK registry (versions, channels, storage settings) for SDK tooling & UI
+	r.mux.HandleFunc("GET /api/registry", r.handleVersionRegistryAPI)
+	r.mux.HandleFunc("GET /api/registry/versions/{version}", r.handleVersionRegistryEntryAPI)
 
 	// Flutter Storage Base URL protocol routes (Go's GET pattern matches both GET and HEAD)
 	r.mux.HandleFunc("GET /{path...}", r.handleObject)
@@ -87,6 +90,8 @@ func (r *FlutterRegistry) handleListArtifactsAPI(w http.ResponseWriter, req *htt
 		}
 	}
 
+	baseURL := registry.BaseURLFromContext(req.Context())
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"items":                 items,
@@ -95,11 +100,71 @@ func (r *FlutterRegistry) handleListArtifactsAPI(w http.ResponseWriter, req *htt
 		"limit":                 limit,
 		"allowed_prefixes":      r.cfg.AllowedPrefixes,
 		"upstream_url":          r.inst.UpstreamURL,
+		"storage_name":          r.cfg.StorageName,
+		"releases_base_url":     r.releasesBaseURL(),
+		"registry_ttl_seconds":  r.cfg.RegistryTTLSeconds,
 		"manifest_ttl_seconds":  r.cfg.ManifestTTLSeconds,
 		"rewrite_manifest_urls": r.cfg.RewriteManifestURLs,
+		"download_storage":      r.storageChannels(baseURL),
 		"logical_bytes":         stats.LogicalBytes,
 		"downloads":             downloads,
 	})
+}
+
+// handleVersionRegistryAPI serves the live per-version Flutter SDK registry for this mirror.
+// GET /r/<slug>/api/registry
+func (r *FlutterRegistry) handleVersionRegistryAPI(w http.ResponseWriter, req *http.Request) {
+	if !r.authorizeRead(w, req, "") {
+		return
+	}
+	baseURL := strings.TrimRight(registry.BaseURLFromContext(req.Context()), "/")
+	reg, err := r.buildVersionRegistry(req.Context(), baseURL)
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", minInt(r.cfg.RegistryTTLSeconds, 60)))
+	if req.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(reg)
+	}
+}
+
+// handleVersionRegistryEntryAPI serves one Flutter SDK version entry from the registry.
+// GET /r/<slug>/api/registry/versions/{version}
+func (r *FlutterRegistry) handleVersionRegistryEntryAPI(w http.ResponseWriter, req *http.Request) {
+	if !r.authorizeRead(w, req, "") {
+		return
+	}
+	version := strings.TrimSpace(req.PathValue("version"))
+	if version == "" {
+		writeJSONError(w, http.StatusBadRequest, "version is required")
+		return
+	}
+	baseURL := strings.TrimRight(registry.BaseURLFromContext(req.Context()), "/")
+	reg, err := r.buildVersionRegistry(req.Context(), baseURL)
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	for _, v := range reg.Versions {
+		if v.Version == version {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=60")
+			if req.Method != http.MethodHead {
+				_ = json.NewEncoder(w).Encode(v)
+			}
+			return
+		}
+	}
+	writeJSONError(w, http.StatusNotFound, "flutter version "+version+" is not available from this mirror")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (r *FlutterRegistry) handleObject(w http.ResponseWriter, req *http.Request) {
@@ -110,6 +175,10 @@ func (r *FlutterRegistry) handleObject(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	if !r.isPathAllowed(cleanPath) {
+		if cat, disabled := r.cfg.disabledCategoryForPath(cleanPath); disabled {
+			writeJSONError(w, http.StatusForbidden, fmt.Sprintf("storage category %q is disabled on this registry", cat.Name))
+			return
+		}
 		writeJSONError(w, http.StatusForbidden, "requested path is outside configured allowed_prefixes")
 		return
 	}
@@ -175,8 +244,9 @@ func (r *FlutterRegistry) fetchAndCacheFromUpstream(ctx context.Context, cleanPa
 		rec *ArtifactRecord
 	}
 
+	upstreamBase := r.upstreamForPath(cleanPath)
 	val, err, shared := r.deps.Cache.Do(r.inst.ID, "flutter:"+cleanPath, func() (any, error) {
-		upstreamURL := strings.TrimRight(r.inst.UpstreamURL, "/") + "/" + cleanPath
+		upstreamURL := upstreamBase + "/" + cleanPath
 		opts := r.inst.UpstreamRequestOptions(nil, r.upstreamTimeout())
 
 		resp, err := r.deps.Upstream.GetWithOptions(ctx, upstreamURL, opts)
@@ -228,8 +298,8 @@ func (r *FlutterRegistry) fetchAndCacheFromUpstream(ctx context.Context, cleanPa
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}
-		if manifest && r.cfg.ManifestTTLSeconds > 0 {
-			exp := now.Add(time.Duration(r.cfg.ManifestTTLSeconds) * time.Second)
+		if ttl := r.manifestTTLForPath(cleanPath); manifest && ttl > 0 {
+			exp := now.Add(time.Duration(ttl) * time.Second)
 			rec.ExpiresAt = &exp
 		}
 		if prev, err := r.store.GetArtifact(ctx, r.inst.ID, cleanPath); err == nil && prev != nil {
@@ -261,14 +331,14 @@ func (r *FlutterRegistry) serveFromStorage(w http.ResponseWriter, req *http.Requ
 	}
 
 	// Dynamic base_url rewriting for Flutter release JSON manifests (releases_linux.json, etc.)
-	if manifest && r.cfg.RewriteManifestURLs && isFlutterReleaseJSON(rec.Path) {
+	if manifest && r.pathRewritesManifests(rec.Path) && isFlutterReleaseJSON(rec.Path) {
 		rawBytes, readErr := io.ReadAll(io.LimitReader(f, 32*1024*1024))
 		if readErr == nil {
-			rewritten := rewriteReleaseManifestBaseURL(rawBytes, r.inst.UpstreamURL, registry.BaseURLFromContext(req.Context()))
+			rewritten := rewriteReleaseManifestBaseURL(rawBytes, r.upstreamForPath(rec.Path), registry.BaseURLFromContext(req.Context()))
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.Header().Set("X-Registry-Cache", cacheState)
 			w.Header().Set("X-Checksum-SHA256", ref.Digest)
-			w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", r.cfg.ManifestTTLSeconds))
+			w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", r.manifestTTLForPath(rec.Path)))
 			w.Header().Set("Content-Length", strconv.Itoa(len(rewritten)))
 			w.WriteHeader(http.StatusOK)
 			if req.Method != http.MethodHead {
@@ -293,7 +363,7 @@ func (r *FlutterRegistry) serveFromStorage(w http.ResponseWriter, req *http.Requ
 		w.Header().Set("ETag", `"`+ref.Digest+`"`)
 	}
 	if manifest {
-		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", r.cfg.ManifestTTLSeconds))
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", r.manifestTTLForPath(rec.Path)))
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
@@ -350,10 +420,18 @@ func isFlutterReleaseJSON(cleanPath string) bool {
 	return strings.HasPrefix(base, "releases_") && strings.HasSuffix(base, ".json")
 }
 
+// manifestBaseSuffix is the stable path segment every Flutter release manifest uses for base_url.
+// Upstream manifests may point base_url at a CDN that is not the host used to fetch the manifest
+// (e.g. storage.googleapis.com serves base_url = https://storage.googleapis.com/flutter_infra_release/releases
+// while regional mirrors or private caches use their own host), so rewriting aligns on this suffix.
+const manifestBaseSuffix = "flutter_infra_release/releases"
+
+// rewriteReleaseManifestBaseURL rewrites base_url inside releases_*.json manifests so Flutter CLI
+// downloads SDK archives from this mirror instead of the upstream storage host.
 func rewriteReleaseManifestBaseURL(raw []byte, upstreamURL, mirrorBaseURL string) []byte {
 	mirrorBaseURL = strings.TrimRight(strings.TrimSpace(mirrorBaseURL), "/")
 	upstreamOrigin := strings.TrimRight(strings.TrimSpace(upstreamURL), "/")
-	if mirrorBaseURL == "" || upstreamOrigin == "" {
+	if mirrorBaseURL == "" {
 		return raw
 	}
 	var payload map[string]any
@@ -364,16 +442,40 @@ func rewriteReleaseManifestBaseURL(raw []byte, upstreamURL, mirrorBaseURL string
 	if !ok || baseVal == "" {
 		return raw
 	}
-	if strings.HasPrefix(baseVal, upstreamOrigin) {
-		payload["base_url"] = mirrorBaseURL + strings.TrimPrefix(baseVal, upstreamOrigin)
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(payload); err == nil {
-			return buf.Bytes()
-		}
+	rewritten, changed := rewriteManifestBase(baseVal, upstreamOrigin, mirrorBaseURL)
+	if !changed {
+		return raw
+	}
+	payload["base_url"] = rewritten
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(payload); err == nil {
+		return buf.Bytes()
 	}
 	return raw
+}
+
+// rewriteManifestBase maps an upstream manifest base_url onto this mirror.
+func rewriteManifestBase(baseVal, upstreamOrigin, mirrorBaseURL string) (string, bool) {
+	baseVal = strings.TrimRight(strings.TrimSpace(baseVal), "/")
+	if baseVal == "" {
+		return baseVal, false
+	}
+	if upstreamOrigin != "" && strings.HasPrefix(baseVal, upstreamOrigin) {
+		return mirrorBaseURL + strings.TrimPrefix(baseVal, upstreamOrigin), true
+	}
+	// Align on the canonical flutter_infra_release/releases suffix so regional/CDN base URLs
+	// (which differ from the configured upstream host) are still rewritten correctly.
+	if idx := strings.Index(baseVal, manifestBaseSuffix); idx >= 0 {
+		if tail := strings.TrimPrefix(baseVal[idx:], manifestBaseSuffix); tail == "" || strings.HasPrefix(tail, "/") {
+			return mirrorBaseURL + "/" + manifestBaseSuffix + tail, true
+		}
+	}
+	if idx := strings.Index(baseVal, "releases"); idx > 0 && strings.HasSuffix(baseVal[:idx], "/") {
+		return mirrorBaseURL + "/" + manifestBaseSuffix + baseVal[idx+len("releases"):], true
+	}
+	return baseVal, false
 }
 
 func inferContentType(cleanPath string) string {

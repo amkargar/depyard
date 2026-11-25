@@ -49,6 +49,7 @@ const total = ref(0)
 const allowedPrefixes = ref<string[]>([])
 const copiedKey = ref('')
 const shellTab = ref<'posix' | 'powershell'>('posix')
+const activeSection = ref<'artifacts' | 'versions'>('artifacts')
 
 const storageBaseUrl = computed(() => {
   if (typeof window === 'undefined') return props.registry.base_path
@@ -280,6 +281,35 @@ watch(
         </UiCard>
       </div>
 
+      <!-- Section switcher: cached artifacts vs. Flutter SDK version registry -->
+      <div class="flex items-center gap-1 border-b">
+        <button
+          v-for="tab in [
+            { key: 'artifacts', label: `Cached Artifacts (${total})` },
+            { key: 'versions', label: 'Flutter SDK Versions' },
+          ]"
+          :key="tab.key"
+          type="button"
+          :class="[
+            'border-b-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors',
+            activeSection === tab.key
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          ]"
+          @click="activeSection = tab.key as any"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <!-- Flutter SDK Version Registry: every version + FLUTTER_STORAGE_BASE_URL resolution -->
+      <SharedFlutterVersionRegistry
+        v-if="activeSection === 'versions'"
+        :endpoint="`${registry.base_path}/api/registry`"
+        unavailable-hint="Release manifests could not be fetched from this mirror's upstream. Cached artifacts remain available; retry once the upstream storage host is reachable."
+      />
+
+      <template v-if="activeSection === 'artifacts'">
       <!-- Category filter pills & Refresh -->
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-1.5">
@@ -389,6 +419,7 @@ watch(
         :total="total"
         @change="(p) => { page = p; loadArtifacts() }"
       />
+      </template>
     </section>
   </div>
 </template>
