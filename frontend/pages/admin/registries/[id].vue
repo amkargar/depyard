@@ -13,6 +13,7 @@ import {
   Check,
   Lock,
   Network,
+  Boxes,
 } from 'lucide-vue-next'
 import type {
   RegistryInstance,
@@ -34,7 +35,7 @@ const noticeMsg = ref('')
 const reg = ref<RegistryInstance | null>(null)
 const types = ref<RegistryTypeInfo[]>([])
 const editOpen = ref(false)
-const activeTab = ref<'overview' | 'artifacts' | 'cache' | 'danger'>('overview')
+const activeTab = ref<'overview' | 'versions' | 'artifacts' | 'cache' | 'danger'>('overview')
 
 // Artifacts tab state
 const artLoading = ref(false)
@@ -280,6 +281,7 @@ onMounted(async () => {
         <button
           v-for="tab in [
             { key: 'overview', label: 'Overview & Settings', show: true },
+            { key: 'versions', label: 'Versions & Storage', show: reg.type === 'flutter' },
             { key: 'artifacts', label: `Artifacts (${artifacts.total})`, show: true },
             { key: 'cache', label: 'Upstream & Cache', show: reg.effective_capabilities.proxy },
             { key: 'danger', label: 'Danger Zone', show: true },
@@ -397,6 +399,60 @@ onMounted(async () => {
             </div>
           </div>
         </UiCard>
+      </div>
+
+      <!-- VERSIONS & STORAGE TAB (Flutter Storage: FLUTTER_STORAGE_BASE_URL per-version registry) -->
+      <div v-if="activeTab === 'versions' && reg.type === 'flutter'" class="space-y-4">
+        <UiCard class="p-5 space-y-4">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 class="text-sm font-semibold flex items-center gap-1.5">
+                <Boxes class="h-4 w-4 text-primary" />
+                FLUTTER_STORAGE_BASE_URL Settings
+              </h2>
+              <p class="text-xs text-muted-foreground">
+                Storage categories, upstream repositories, release manifest source, and cache policy for
+                this Flutter Storage registry. Changes apply live.
+              </p>
+            </div>
+            <UiButton variant="outline" size="sm" @click="editOpen = true">
+              <Settings2 class="h-3.5 w-3.5" />
+              Edit Storage Settings
+            </UiButton>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Storage Name</div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ reg.config?.storage_name || reg.name }}
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Manifest Source</div>
+              <div class="font-mono text-foreground mt-0.5 truncate" :title="reg.config?.releases_base_url">
+                {{ reg.config?.releases_base_url || `${reg.upstream_url}/flutter_infra_release/releases` }}
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Manifest TTL</div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ reg.config?.manifest_ttl_seconds ?? 300 }}s
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Version Registry TTL</div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ reg.config?.registry_ttl_seconds ?? 900 }}s
+              </div>
+            </div>
+          </div>
+        </UiCard>
+
+        <SharedFlutterVersionRegistry
+          :endpoint="`/api/admin/registries/${reg.id}/version-registry`"
+          unavailable-hint="The version registry is derived from upstream release manifests. Verify the registry upstream and release manifest base URL are reachable, then refresh."
+        />
       </div>
 
       <!-- ARTIFACTS TAB -->

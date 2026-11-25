@@ -89,6 +89,13 @@ server {
         proxy_pass http://mirror_backend;
     }
 
+    # Self-hosted fonts (Roboto, SIL OFL 1.1) shipped with the static SPA
+    location ^~ /fonts/ {
+        expires 30d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+    }
+
     # Content-hashed Nuxt static build assets
     location ^~ /_nuxt/ {
         expires 1y;

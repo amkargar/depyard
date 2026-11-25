@@ -102,6 +102,35 @@ func (r *FlutterRegistry) upstreamTimeout() time.Duration {
 	return defaultUpstreamTimeoutSecs * time.Second
 }
 
+// upstreamForPath resolves the upstream base URL for a clean artifact path, honoring per-category
+// download_storage overrides while falling back to the registry-level upstream URL.
+func (r *FlutterRegistry) upstreamForPath(cleanPath string) string {
+	channel, ok := r.cfg.resolveCategory(cleanPath)
+	if !ok {
+		return strings.TrimRight(r.inst.UpstreamURL, "/")
+	}
+	return r.cfg.categoryUpstreamURL(channel, r.inst.UpstreamURL)
+}
+
+// manifestTTLForPath resolves the mutable-manifest TTL for a path, honoring per-category overrides.
+func (r *FlutterRegistry) manifestTTLForPath(cleanPath string) int {
+	channel, ok := r.cfg.resolveCategory(cleanPath)
+	if !ok {
+		return r.cfg.ManifestTTLSeconds
+	}
+	return r.cfg.categoryManifestTTL(channel)
+}
+
+// pathRewritesManifests reports whether Flutter release manifests fetched through this path
+// should have their base_url rewritten to point at this mirror.
+func (r *FlutterRegistry) pathRewritesManifests(cleanPath string) bool {
+	channel, ok := r.cfg.resolveCategory(cleanPath)
+	if !ok {
+		return r.cfg.RewriteManifestURLs
+	}
+	return r.cfg.categoryRewriteManifests(channel)
+}
+
 func (r *FlutterRegistry) isPathAllowed(cleanPath string) bool {
 	for _, prefix := range r.cfg.AllowedPrefixes {
 		if prefix == "*" || cleanPath == prefix || strings.HasPrefix(cleanPath, prefix+"/") {
@@ -215,6 +244,9 @@ func (r *FlutterRegistry) MatchesCompatPath(p string) bool {
 	if trimmed == "" {
 		return false
 	}
+	if _, disabled := r.cfg.disabledCategoryForPath(trimmed); disabled {
+		return false
+	}
 	for _, prefix := range r.cfg.AllowedPrefixes {
 		if prefix == "*" {
 			// Never match wildcard on root compat route to avoid shadowing UI/API routes.
@@ -225,6 +257,16 @@ func (r *FlutterRegistry) MatchesCompatPath(p string) bool {
 		}
 	}
 	return false
+}
+
+// VersionRegistry implements registry.VersionRegistryProvider so the Admin Console and Explorer can
+// list every Flutter SDK version known to this mirror together with its storage settings.
+func (r *FlutterRegistry) VersionRegistry(ctx context.Context) (any, error) {
+	baseURL := registry.BaseURLFromContext(ctx)
+	if baseURL == "" {
+		baseURL = "/r/" + r.inst.Slug
+	}
+	return r.buildVersionRegistry(ctx, strings.TrimRight(baseURL, "/"))
 }
 
 // CleanupRegistry implements registry.RegistryCleaner when the registry instance is deleted.

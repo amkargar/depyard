@@ -13,6 +13,16 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'Mirror Registry',
+      link: [
+        // Self-hosted Roboto (SIL OFL 1.1) — see /public/fonts/roboto/OFL.txt
+        {
+          rel: 'preload',
+          as: 'font',
+          type: 'font/woff2',
+          href: '/fonts/roboto/roboto-latin-400-normal.woff2',
+          crossorigin: 'anonymous',
+        },
+      ],
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         { name: 'description', content: 'Self-hosted multi-format package and artifact registry platform' },

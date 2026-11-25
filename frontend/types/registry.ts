@@ -239,6 +239,81 @@ export interface AuditEntry {
   details?: Record<string, any>
 }
 
+/** One FLUTTER_STORAGE_BASE_URL category (flutter_infra_release, download.flutter.io, ...). */
+export interface FlutterDownloadStorageSetting {
+  name: string
+  upstream_url?: string
+  allowed_prefixes?: string[]
+  manifest_ttl_seconds?: number
+  rewrite_manifest_urls?: boolean
+  enabled?: boolean
+}
+
+export interface FlutterStorageChannel {
+  name: string
+  enabled: boolean
+  upstream_url: string
+  mirror_url: string
+  allowed_prefixes: string[]
+  rewrites_manifests: boolean
+  manifest_ttl_seconds: number
+  inherits_upstream: boolean
+}
+
+export interface FlutterVersionDownload {
+  platform: string
+  archive: string
+  mirror_url: string
+  sha256?: string
+}
+
+export interface FlutterVersionStorage {
+  category: string
+  path: string
+  upstream_url: string
+  mirror_url: string
+  inherited_from?: string
+}
+
+export interface FlutterVersionEntry {
+  version: string
+  channel: string
+  dart_sdk_version?: string
+  release_date?: string
+  hash?: string
+  archived: boolean
+  downloads: FlutterVersionDownload[]
+  storage: FlutterVersionStorage[]
+  sdk_download_url?: string
+  dart_sdk_url?: string
+  engine_manifest_url?: string
+  registry_entry_url: string
+}
+
+export interface FlutterVersionChannel {
+  name: string
+  current_release?: string
+  manifest_url?: string
+  managed_by?: string
+}
+
+export interface FlutterVersionRegistry {
+  registry_id: string
+  registry_slug: string
+  storage_name: string
+  upstream_url: string
+  releases_base_url: string
+  base_path: string
+  generated_at: string
+  expires_at: string
+  current_release?: string
+  channels: FlutterVersionChannel[]
+  storage: FlutterStorageChannel[]
+  versions: FlutterVersionEntry[]
+  total_versions: number
+  warnings?: string[]
+}
+
 export interface PlatformSettings {
   id: string
   site_title: string
