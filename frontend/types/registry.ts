@@ -1,6 +1,7 @@
 export type RepositoryMode = 'proxy' | 'hosted' | 'hybrid'
 export type Visibility = 'public' | 'private'
 export type PermissionScope = 'read' | 'publish' | 'delete' | 'admin'
+export type UpstreamAuthType = '' | 'none' | 'bearer' | 'basic' | 'header'
 
 export interface Capabilities {
   proxy: boolean
@@ -46,6 +47,18 @@ export interface CachePolicy {
   negative_cache_ttl_seconds: number
 }
 
+export interface UpstreamConfig {
+  auth_type?: UpstreamAuthType
+  auth_header?: string
+  auth_username?: string
+  auth_token?: string
+  has_auth_secret?: boolean
+  proxy_url?: string
+  timeout_seconds?: number
+  insecure_skip_verify?: boolean
+  custom_headers?: Record<string, string>
+}
+
 export interface RegistryStorageStats {
   registry_id: string
   logical_bytes: number
@@ -88,6 +101,7 @@ export interface RegistryInstance {
   enabled: boolean
   mode: RepositoryMode
   upstream_url?: string
+  upstream_config?: UpstreamConfig
   visibility: Visibility
   auth_policy: AuthPolicy
   storage_quota_bytes: number
@@ -232,5 +246,11 @@ export interface PlatformSettings {
   enable_root_compat_route: boolean
   audit_retention_days: number
   stats_retention_days: number
+  upstream_proxy_url: string
+  upstream_timeout_seconds: number
+  upstream_user_agent: string
+  upstream_insecure_skip_verify: boolean
+  default_pub_upstream_url: string
+  default_flutter_storage_url: string
   updated_at: string
 }

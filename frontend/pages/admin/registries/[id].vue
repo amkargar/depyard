@@ -11,6 +11,8 @@ import {
   Search,
   Copy,
   Check,
+  Lock,
+  Network,
 } from 'lucide-vue-next'
 import type {
   RegistryInstance,
@@ -52,6 +54,17 @@ const fullBaseUrl = computed(() => {
   if (typeof window === 'undefined') return reg.value.base_path
   return `${window.location.origin}${reg.value.base_path}`
 })
+
+const currentTypeInfo = computed(() =>
+  reg.value ? types.value.find((t) => t.type === reg.value?.type) ?? null : null,
+)
+
+function formatConfigValue(val: any): string {
+  if (val === undefined || val === null || val === '') return 'Default'
+  if (typeof val === 'boolean') return val ? 'Enabled' : 'Disabled'
+  if (Array.isArray(val)) return val.join(', ')
+  return String(val)
+}
 
 async function loadRegistry() {
   loading.value = true
@@ -156,12 +169,12 @@ async function handleHealthCheck() {
   errorMsg.value = ''
   noticeMsg.value = ''
   try {
-    const res = await apiFetch<{ available: boolean; latency_ms: number; error?: string }>(
+    const res = await apiFetch<{ available: boolean; status_code?: number; latency_ms: number; error?: string }>(
       `/api/admin/registries/${reg.value.id}/health-check`,
       { method: 'POST' },
     )
     noticeMsg.value = res.available
-      ? `Upstream reachable (${res.latency_ms} ms)`
+      ? `Upstream reachable${res.status_code ? ` (HTTP ${res.status_code})` : ''} in ${res.latency_ms} ms`
       : `Upstream check failed: ${res.error || 'unreachable'}`
     await loadRegistry()
   } catch (err: any) {
@@ -228,6 +241,7 @@ onMounted(async () => {
             <h1 class="text-2xl font-bold tracking-tight">{{ reg.name }}</h1>
             <UiBadge variant="info" class="uppercase font-mono text-[10px]">{{ reg.type }}</UiBadge>
             <UiBadge variant="secondary" class="capitalize">{{ reg.mode }}</UiBadge>
+            <UiBadge v-if="reg.is_default" variant="success">Default ({{ reg.type }})</UiBadge>
             <UiBadge :variant="reg.health === 'healthy' ? 'success' : reg.health === 'degraded' ? 'warning' : 'secondary'" class="capitalize">
               {{ reg.health }}
             </UiBadge>
@@ -265,9 +279,9 @@ onMounted(async () => {
       <div class="flex items-center gap-1 border-b overflow-x-auto">
         <button
           v-for="tab in [
-            { key: 'overview', label: 'Overview & Stats', show: true },
+            { key: 'overview', label: 'Overview & Settings', show: true },
             { key: 'artifacts', label: `Artifacts (${artifacts.total})`, show: true },
-            { key: 'cache', label: 'Cache & Upstream', show: reg.effective_capabilities.proxy },
+            { key: 'cache', label: 'Upstream & Cache', show: reg.effective_capabilities.proxy },
             { key: 'danger', label: 'Danger Zone', show: true },
           ].filter((t) => t.show)"
           :key="tab.key"
@@ -348,11 +362,41 @@ onMounted(async () => {
             <SharedCapabilityBadges :capabilities="reg.effective_capabilities" />
             <div class="border-t pt-3 space-y-1 text-xs text-muted-foreground">
               <div>Visibility: <strong class="text-foreground capitalize">{{ reg.visibility }}</strong> (Anonymous read: {{ reg.auth_policy.allow_anonymous_read ? 'Yes' : 'No' }})</div>
+              <div v-if="reg.hostname">Custom Hostname: <strong class="font-mono text-foreground">{{ reg.hostname }}</strong></div>
               <div v-if="reg.upstream_url">Upstream: <strong class="font-mono text-foreground">{{ reg.upstream_url }}</strong></div>
               <div>Updated: <strong class="text-foreground">{{ formatDateTime(reg.updated_at) }}</strong></div>
             </div>
           </UiCard>
         </div>
+
+        <!-- Ecosystem-specific active settings summary -->
+        <UiCard v-if="currentTypeInfo?.config_hints?.length" class="p-5 space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h2 class="text-sm font-semibold">{{ currentTypeInfo.display_name }} Configuration</h2>
+              <p class="text-xs text-muted-foreground">
+                Live ecosystem-specific settings applied to this instance.
+              </p>
+            </div>
+            <UiButton variant="outline" size="sm" @click="editOpen = true">
+              <Settings2 class="h-3.5 w-3.5" />
+              Edit Settings
+            </UiButton>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            <div
+              v-for="hint in currentTypeInfo.config_hints"
+              :key="hint.key"
+              class="rounded-lg border bg-muted/20 p-3 space-y-1"
+            >
+              <div class="text-muted-foreground">{{ hint.label }}</div>
+              <div class="font-mono font-medium text-foreground break-all">
+                {{ formatConfigValue(reg.config?.[hint.key] ?? hint.default_value) }}
+              </div>
+            </div>
+          </div>
+        </UiCard>
       </div>
 
       <!-- ARTIFACTS TAB -->
@@ -360,7 +404,7 @@ onMounted(async () => {
         <div class="flex flex-wrap items-center gap-3">
           <form class="relative flex-1 min-w-[220px] max-w-md" @submit.prevent="() => { artPage = 1; loadArtifacts() }">
             <Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <UiInput v-model="artSearch" placeholder="Filter artifacts by name..." class="pl-9" />
+            <UiInput v-model="artSearch" placeholder="Filter artifacts by name or path..." class="pl-9" />
           </form>
           <UiSelect
             v-model="artOrigin"
@@ -377,6 +421,7 @@ onMounted(async () => {
         <SharedArtifactTable
           :items="artifacts.items"
           :registry-slug="reg.slug"
+          :registry-type="reg.type"
           :can-delete="reg.effective_capabilities.artifact_deletion"
           :loading="artLoading"
           @delete="handleDeleteArtifact"
@@ -390,20 +435,30 @@ onMounted(async () => {
         />
       </div>
 
-      <!-- CACHE & UPSTREAM TAB (Capability-gated!) -->
+      <!-- UPSTREAM & CACHE TAB (Capability-gated!) -->
       <div v-if="activeTab === 'cache' && reg.effective_capabilities.proxy" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <UiCard class="p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold">Upstream Health</h2>
-            <UiButton variant="outline" size="sm" :disabled="actionBusy" @click="handleHealthCheck">
-              <HeartPulse class="h-3.5 w-3.5" />
-              Check Now
-            </UiButton>
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold flex items-center gap-1.5">
+              <Network class="h-4 w-4 text-primary" />
+              Upstream Configuration &amp; Health
+            </h2>
+            <div class="flex items-center gap-1.5">
+              <UiButton variant="outline" size="sm" @click="editOpen = true">
+                <Settings2 class="h-3.5 w-3.5" />
+                Edit
+              </UiButton>
+              <UiButton variant="outline" size="sm" :disabled="actionBusy" @click="handleHealthCheck">
+                <HeartPulse class="h-3.5 w-3.5" />
+                Check Now
+              </UiButton>
+            </div>
           </div>
+
           <div class="space-y-2 text-xs">
             <div>Upstream URL: <span class="font-mono text-foreground">{{ reg.upstream_url }}</span></div>
-            <div>
-              Status:
+            <div class="flex items-center gap-2">
+              <span>Status:</span>
               <UiBadge
                 :variant="!reg.metrics.upstream.checked ? 'secondary' : reg.metrics.upstream.available ? 'success' : 'destructive'"
               >
@@ -411,38 +466,100 @@ onMounted(async () => {
               </UiBadge>
             </div>
             <div v-if="reg.metrics.upstream.checked">
-              Latency: <strong>{{ reg.metrics.upstream.latency_ms }} ms</strong> · Checked {{ formatDateTime(reg.metrics.upstream.checked_at) }}
+              Latency: <strong>{{ reg.metrics.upstream.latency_ms }} ms</strong>
+              <span v-if="reg.metrics.upstream.status_code"> · HTTP {{ reg.metrics.upstream.status_code }}</span>
+              · Checked {{ formatDateTime(reg.metrics.upstream.checked_at) }}
             </div>
             <div v-if="reg.metrics.upstream.error" class="text-red-600">
               {{ reg.metrics.upstream.error }}
             </div>
           </div>
 
-          <div class="border-t pt-4 space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Purge Proxy Cache</h3>
-            <p class="text-xs text-muted-foreground">
-              Evicts all cached upstream artifacts in this registry. Locally published hosted packages are strictly protected and remain untouched.
-            </p>
-            <UiButton variant="outline" size="sm" :disabled="actionBusy" @click="handlePurgeCache">
-              <Eraser class="h-3.5 w-3.5" />
-              Purge Cached Artifacts
-            </UiButton>
+          <div class="border-t pt-3 grid grid-cols-2 gap-2.5 text-xs">
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Authentication</div>
+              <div class="font-medium text-foreground capitalize mt-0.5 flex items-center gap-1">
+                {{ reg.upstream_config?.auth_type || 'Anonymous' }}
+                <Lock v-if="reg.upstream_config?.has_auth_secret" class="h-3 w-3 text-emerald-600" />
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Proxy Override</div>
+              <div class="font-mono text-foreground mt-0.5 truncate">
+                {{ reg.upstream_config?.proxy_url || 'Global default' }}
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">Timeout Override</div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ reg.upstream_config?.timeout_seconds ? `${reg.upstream_config.timeout_seconds}s` : 'Default' }}
+              </div>
+            </div>
+            <div class="rounded-md bg-muted/30 p-2.5">
+              <div class="text-muted-foreground">TLS Verification</div>
+              <div class="font-medium text-foreground mt-0.5">
+                {{ reg.upstream_config?.insecure_skip_verify ? 'Skip Verify (Insecure)' : 'Strict (Global)' }}
+              </div>
+            </div>
           </div>
         </UiCard>
 
-        <UiCard v-if="reg.effective_capabilities.cache_warm" class="p-5 space-y-4">
-          <h2 class="text-sm font-semibold">Warm Package Cache</h2>
-          <p class="text-xs text-muted-foreground">
-            Pre-fetch a package's metadata and latest archive from upstream into local content-addressed storage.
-          </p>
-          <form class="flex items-center gap-2" @submit.prevent="handleWarmCache">
-            <UiInput v-model="warmName" placeholder="Package name (e.g. flutter_bloc)" required />
-            <UiButton type="submit" size="sm" :disabled="actionBusy">
-              <Flame class="h-3.5 w-3.5" />
-              Warm
-            </UiButton>
-          </form>
-        </UiCard>
+        <div class="space-y-4">
+          <UiCard class="p-5 space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold">Cache Policy &amp; Eviction</h2>
+              <UiButton variant="outline" size="sm" @click="editOpen = true">
+                <Settings2 class="h-3.5 w-3.5" />
+                Edit Policy
+              </UiButton>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5 text-xs">
+              <div class="rounded-md bg-muted/30 p-2.5">
+                <div class="text-muted-foreground">Metadata TTL</div>
+                <div class="font-medium text-foreground mt-0.5">{{ reg.cache_policy.metadata_ttl_seconds }}s</div>
+              </div>
+              <div class="rounded-md bg-muted/30 p-2.5">
+                <div class="text-muted-foreground">Archive TTL</div>
+                <div class="font-medium text-foreground mt-0.5">
+                  {{ reg.cache_policy.archive_ttl_seconds ? `${reg.cache_policy.archive_ttl_seconds}s` : 'Keep until evicted' }}
+                </div>
+              </div>
+              <div class="rounded-md bg-muted/30 p-2.5">
+                <div class="text-muted-foreground">Max Cache Size</div>
+                <div class="font-medium text-foreground mt-0.5">
+                  {{ reg.cache_policy.max_size_bytes ? formatBytes(reg.cache_policy.max_size_bytes) : 'Unlimited' }}
+                </div>
+              </div>
+              <div class="rounded-md bg-muted/30 p-2.5">
+                <div class="text-muted-foreground">Eviction Policy</div>
+                <div class="font-medium text-foreground uppercase mt-0.5">{{ reg.cache_policy.eviction_policy || 'LRU' }}</div>
+              </div>
+            </div>
+            <div class="border-t pt-3 space-y-2">
+              <p class="text-xs text-muted-foreground">
+                Evicts all cached upstream artifacts in this registry. Locally hosted artifacts are strictly protected and remain untouched.
+              </p>
+              <UiButton variant="outline" size="sm" :disabled="actionBusy" @click="handlePurgeCache">
+                <Eraser class="h-3.5 w-3.5" />
+                Purge Cached Artifacts
+              </UiButton>
+            </div>
+          </UiCard>
+
+          <UiCard v-if="reg.effective_capabilities.cache_warm" class="p-5 space-y-4">
+            <h2 class="text-sm font-semibold">Warm Package Cache</h2>
+            <p class="text-xs text-muted-foreground">
+              Pre-fetch a package's metadata and latest archive from upstream into local content-addressed storage.
+            </p>
+            <form class="flex items-center gap-2" @submit.prevent="handleWarmCache">
+              <UiInput v-model="warmName" placeholder="Package name (e.g. flutter_bloc)" required />
+              <UiButton type="submit" size="sm" :disabled="actionBusy">
+                <Flame class="h-3.5 w-3.5" />
+                Warm
+              </UiButton>
+            </form>
+          </UiCard>
+        </div>
       </div>
 
       <!-- DANGER ZONE TAB -->
