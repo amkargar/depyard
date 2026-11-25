@@ -1,0 +1,11 @@
+# Dependencies & build artifacts
+node_modules/
+frontend/.nuxt/
+frontend/.output/
+frontend/dist/
+backend/data/
+backend/bin/
+*.log
+.env
+.env.local
+.DS_Store
