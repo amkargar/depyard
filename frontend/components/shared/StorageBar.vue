@@ -29,7 +29,7 @@ const barColor = computed(() => {
         {{ quotaBytes > 0 ? `of ${formatBytes(quotaBytes)} (${pct.toFixed(0)}%)` : 'No quota limit' }}
       </span>
     </div>
-    <UiProgress v-if="quotaBytes > 0" :value="pct" :bar-class="barColor" />
+    <UiProgress v-if="quotaBytes > 0" :model-value="pct" :bar-class="barColor" />
     <div v-if="!compact && (hostedBytes || cachedBytes)" class="flex items-center gap-3 text-[11px] text-muted-foreground">
       <span>Hosted: <strong class="text-foreground">{{ formatBytes(hostedBytes) }}</strong></span>
       <span>Cached: <strong class="text-foreground">{{ formatBytes(cachedBytes) }}</strong></span>

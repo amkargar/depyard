@@ -222,79 +222,104 @@ onMounted(loadUsers)
       </div>
     </UiCard>
 
-    <UiDialog
-      :open="editOpen"
-      :title="`Edit ${editing?.username || 'user'}`"
-      description="Changing a password, role, or status invalidates that user's sessions and personal tokens."
-      @close="editOpen = false"
-    >
-      <form id="user-edit-form" class="space-y-4" @submit.prevent="handleEdit">
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Username</label>
-          <UiInput v-model="editForm.username" required />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Email</label>
-          <UiInput v-model="editForm.email" type="email" />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">New password (leave empty to keep current)</label>
-          <UiInput v-model="editForm.password" type="password" :placeholder="`min ${minPasswordLength} chars`" />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Role</label>
-          <UiSelect v-model="editForm.role" :options="roleOptions" aria-label="User role" />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Status</label>
-          <UiSelect
-            :model-value="editForm.disabled ? 'disabled' : 'active'"
-            :options="[
-              { value: 'active', label: 'Active' },
-              { value: 'disabled', label: 'Disabled' },
-            ]"
-            aria-label="Account status"
-            @update:model-value="(v: string) => (editForm.disabled = v === 'disabled')"
-          />
-        </div>
-      </form>
-      <template #footer>
-        <UiButton variant="outline" @click="editOpen = false">Cancel</UiButton>
-        <UiButton type="submit" form="user-edit-form" :disabled="saving">
-          {{ saving ? 'Saving...' : 'Save changes' }}
-        </UiButton>
-      </template>
+    <UiDialog :open="editOpen" @update:open="(v) => (editOpen = v)">
+      <UiDialogContent class="sm:max-w-xl">
+        <UiDialogHeader>
+          <UiDialogTitle>{{ `Edit ${editing?.username || 'user'}` }}</UiDialogTitle>
+          <UiDialogDescription>
+            Changing a password, role, or status invalidates that user's sessions and personal tokens.
+          </UiDialogDescription>
+        </UiDialogHeader>
+        <form id="user-edit-form" class="space-y-4" @submit.prevent="handleEdit">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Username</label>
+            <UiInput v-model="editForm.username" required />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Email</label>
+            <UiInput v-model="editForm.email" type="email" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">New password (leave empty to keep current)</label>
+            <UiInput v-model="editForm.password" type="password" :placeholder="`min ${minPasswordLength} chars`" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Role</label>
+            <UiSelect v-model="editForm.role">
+              <UiSelectTrigger aria-label="User role">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in roleOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Status</label>
+            <UiSelect
+              :model-value="editForm.disabled ? 'disabled' : 'active'"
+              @update:model-value="(v) => (editForm.disabled = v === 'disabled')"
+            >
+              <UiSelectTrigger aria-label="Account status">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem value="active">Active</UiSelectItem>
+                <UiSelectItem value="disabled">Disabled</UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+        </form>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="editOpen = false">Cancel</UiButton>
+          <UiButton type="submit" form="user-edit-form" :disabled="saving">
+            {{ saving ? 'Saving...' : 'Save changes' }}
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
     </UiDialog>
 
-    <UiDialog :open="createOpen" title="Create User" @close="createOpen = false">
-      <form id="user-form" class="space-y-4" @submit.prevent="handleCreate">
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Username</label>
-          <UiInput v-model="form.username" required />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Email</label>
-          <UiInput v-model="form.email" type="email" />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Password (min {{ minPasswordLength }} chars)</label>
-          <UiInput v-model="form.password" type="password" required />
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Role</label>
-          <UiSelect
-            v-model="form.role"
-            :options="roleOptions"
-            aria-label="User role"
-          />
-        </div>
-      </form>
-      <template #footer>
-        <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
-        <UiButton type="submit" form="user-form" :disabled="saving">
-          {{ saving ? 'Creating...' : 'Create User' }}
-        </UiButton>
-      </template>
+    <UiDialog :open="createOpen" @update:open="(v) => (createOpen = v)">
+      <UiDialogContent class="sm:max-w-xl">
+        <UiDialogHeader>
+          <UiDialogTitle>Create User</UiDialogTitle>
+        </UiDialogHeader>
+        <form id="user-form" class="space-y-4" @submit.prevent="handleCreate">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Username</label>
+            <UiInput v-model="form.username" required />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Email</label>
+            <UiInput v-model="form.email" type="email" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Password (min {{ minPasswordLength }} chars)</label>
+            <UiInput v-model="form.password" type="password" required />
+          </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Role</label>
+            <UiSelect v-model="form.role">
+              <UiSelectTrigger aria-label="User role">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in roleOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
+        </form>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
+          <UiButton type="submit" form="user-form" :disabled="saving">
+            {{ saving ? 'Creating...' : 'Create User' }}
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
     </UiDialog>
   </div>
 </template>

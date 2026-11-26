@@ -31,12 +31,19 @@ const ownerOptions = computed(() => [
 ])
 
 const registryScopeOptions = computed(() => [
-  { value: '', label: 'All Registries' },
+  { value: '__all__', label: 'All Registries' },
   ...registries.value.map((r) => ({
     value: r.id,
     label: `${r.name} (/r/${r.slug} · ${r.type})`,
   })),
 ])
+
+const registryScopeModel = computed({
+  get: () => form.registry_id || '__all__',
+  set: (v: string) => {
+    form.registry_id = v === '__all__' ? '' : v
+  },
+})
 const createOpen = ref(false)
 const saving = ref(false)
 const createdPlaintext = ref('')
@@ -264,38 +271,51 @@ onMounted(loadData)
       </div>
     </UiCard>
 
-    <UiDialog
-      :open="createOpen"
-      title="Create Scoped Access Token"
-      description="Restrict CI/CD and developer tokens to specific registry instances, scopes, and package namespaces."
-      @close="createOpen = false"
-    >
-      <form id="token-form" class="space-y-4" @submit.prevent="handleCreate">
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Token Name</label>
-          <UiInput v-model="form.name" placeholder="e.g. flutter-ci" required />
-        </div>
+    <UiDialog :open="createOpen" @update:open="(v) => (createOpen = v)">
+      <UiDialogContent class="sm:max-w-xl">
+        <UiDialogHeader>
+          <UiDialogTitle>Create Scoped Access Token</UiDialogTitle>
+          <UiDialogDescription>
+            Restrict CI/CD and developer tokens to specific registry instances, scopes, and package namespaces.
+          </UiDialogDescription>
+        </UiDialogHeader>
 
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Token Owner</label>
-          <UiSelect
-            v-model="form.user_id"
-            :options="ownerOptions"
-            aria-label="Token owner"
-          />
-          <p class="text-[11px] text-muted-foreground">
-            Issue the token on behalf of another account, for example to provision a CI job.
-          </p>
-        </div>
+        <form id="token-form" class="space-y-4" @submit.prevent="handleCreate">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Token Name</label>
+            <UiInput v-model="form.name" placeholder="e.g. flutter-ci" required />
+          </div>
 
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Registry Scope</label>
-          <UiSelect
-            v-model="form.registry_id"
-            :options="registryScopeOptions"
-            aria-label="Registry scope"
-          />
-        </div>
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Token Owner</label>
+            <UiSelect v-model="form.user_id">
+              <UiSelectTrigger aria-label="Token owner">
+                <UiSelectValue placeholder="Select owner" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in ownerOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+            <p class="text-[11px] text-muted-foreground">
+              Issue the token on behalf of another account, for example to provision a CI job.
+            </p>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Registry Scope</label>
+            <UiSelect v-model="registryScopeModel">
+              <UiSelectTrigger aria-label="Registry scope">
+                <UiSelectValue placeholder="All Registries" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in registryScopeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Permission Scopes</label>
@@ -328,12 +348,13 @@ onMounted(loadData)
           <UiInput v-model="form.expires_days" type="number" min="0" />
         </div>
       </form>
-      <template #footer>
-        <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
-        <UiButton type="submit" form="token-form" :disabled="saving || form.scopes.length === 0">
-          {{ saving ? 'Generating...' : 'Generate Token' }}
-        </UiButton>
-      </template>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
+          <UiButton type="submit" form="token-form" :disabled="saving || form.scopes.length === 0">
+            {{ saving ? 'Generating...' : 'Generate Token' }}
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
     </UiDialog>
   </div>
 </template>

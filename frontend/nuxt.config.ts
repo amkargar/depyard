@@ -1,3 +1,5 @@
+import tailwindcss from '@tailwindcss/vite'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 const backendTarget =
   (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
@@ -7,7 +9,11 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
   ssr: false,
-  modules: ['@nuxtjs/tailwindcss'],
+  modules: ['shadcn-nuxt'],
+  shadcn: {
+    prefix: 'Ui',
+    componentDir: './components/ui',
+  },
   css: ['~/assets/css/tailwind.css'],
 
   app: {
@@ -46,6 +52,7 @@ export default defineNuxtConfig({
   },
 
   vite: {
+    plugins: [tailwindcss()],
     server: {
       allowedHosts: true,
     },

@@ -28,12 +28,19 @@ const form = reactive({
 const availableScopes: PermissionScope[] = ['read', 'publish', 'delete']
 
 const registryScopeOptions = computed(() => [
-  { value: '', label: 'All Registries' },
+  { value: '__all__', label: 'All Registries' },
   ...registries.value.map((r) => ({
     value: r.id,
     label: `${r.name} (/r/${r.slug} · ${r.type})`,
   })),
 ])
+
+const registryScopeModel = computed({
+  get: () => form.registry_id || '__all__',
+  set: (v: string) => {
+    form.registry_id = v === '__all__' ? '' : v
+  },
+})
 
 async function loadData() {
   loading.value = true
@@ -235,26 +242,34 @@ onMounted(loadData)
       </div>
     </UiCard>
 
-    <UiDialog
-      :open="createOpen"
-      title="Create Personal Access Token"
-      description="Tokens are bound to your account and can never grant more than your own permissions."
-      @close="createOpen = false"
-    >
-      <form id="my-token-form" class="space-y-4" @submit.prevent="handleCreate">
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Token Name</label>
-          <UiInput v-model="form.name" placeholder="e.g. my-ci" required />
-        </div>
+    <UiDialog :open="createOpen" @update:open="(v) => (createOpen = v)">
+      <UiDialogContent class="sm:max-w-xl">
+        <UiDialogHeader>
+          <UiDialogTitle>Create Personal Access Token</UiDialogTitle>
+          <UiDialogDescription>
+            Tokens are bound to your account and can never grant more than your own permissions.
+          </UiDialogDescription>
+        </UiDialogHeader>
 
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Registry Scope</label>
-          <UiSelect
-            v-model="form.registry_id"
-            :options="registryScopeOptions"
-            aria-label="Registry scope"
-          />
-        </div>
+        <form id="my-token-form" class="space-y-4" @submit.prevent="handleCreate">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Token Name</label>
+            <UiInput v-model="form.name" placeholder="e.g. my-ci" required />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Registry Scope</label>
+            <UiSelect v-model="registryScopeModel">
+              <UiSelectTrigger aria-label="Registry scope">
+                <UiSelectValue placeholder="All Registries" />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in registryScopeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Permission Scopes</label>
@@ -286,12 +301,13 @@ onMounted(loadData)
           <UiInput v-model.number="form.expires_days" type="number" min="0" />
         </div>
       </form>
-      <template #footer>
-        <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
-        <UiButton type="submit" form="my-token-form" :disabled="saving">
-          {{ saving ? 'Creating...' : 'Create Token' }}
-        </UiButton>
-      </template>
+        <UiDialogFooter>
+          <UiButton variant="outline" @click="createOpen = false">Cancel</UiButton>
+          <UiButton type="submit" form="my-token-form" :disabled="saving">
+            {{ saving ? 'Creating...' : 'Create Token' }}
+          </UiButton>
+        </UiDialogFooter>
+      </UiDialogContent>
     </UiDialog>
   </div>
 </template>
