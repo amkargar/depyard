@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Boxes, Shield, Compass, UserCircle } from 'lucide-vue-next'
+import { Shield, Compass, UserCircle } from 'lucide-vue-next'
 
 const { user, isAdmin, refresh } = useAuth()
 onMounted(() => refresh())
@@ -11,9 +11,7 @@ onMounted(() => refresh())
       <div class="mx-auto max-w-6xl px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
         <div class="flex items-center gap-6">
           <NuxtLink to="/" class="flex items-center gap-2.5 font-semibold tracking-tight text-foreground">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#122030] text-sky-400">
-              <Boxes class="h-4 w-4" />
-            </div>
+            <img src="/logo.png" alt="" width="36" height="36" class="h-9 w-9 shrink-0 object-contain" />
             <span>Depyard</span>
           </NuxtLink>
 
