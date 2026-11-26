@@ -108,6 +108,31 @@ grep -q '^COMPOSE_PROJECT_NAME=oldproj$' "$legacy/.env"
 grep -q '^ADMIN_PASSWORD=$' "$legacy/.env"
 check 'legacy volume adoption'
 
+# Upgrade moves an installer-managed install to a newer stamped version.
+upgrade_dir="$WORK/upgrade"
+run_installer "$upgrade_dir" --version v1.4.0 >/dev/null
+out="$(run_installer "$upgrade_dir" --upgrade v1.5.0)"
+[[ "$out" == *'Upgrading Depyard v1.4.0 -> v1.5.0'* ]]
+[[ "$out" != *'Password:'* ]]
+grep -q '^DEPWARD_VERSION=v1.5.0$' "$upgrade_dir/.depyard-state"
+grep -q 'image: ghcr.io/amkargar/depyard-backend:v1.5.0' "$upgrade_dir/docker-compose.yml"
+grep -q '^HTTP_PORT=8080$' "$upgrade_dir/.env"
+check 'upgrade to a newer version'
+
+# Re-applying the same version is reported clearly.
+out="$(run_installer "$upgrade_dir" --upgrade v1.5.0)"
+[[ "$out" == *'already installed; re-applying'* ]]
+check 'same-version upgrade'
+
+# Upgrade refuses to create a brand-new installation.
+export VOLUMES_OUT=''
+if run_installer "$WORK/empty-upgrade" --upgrade v1.5.0 >"$WORK/upgrade.out" 2>&1; then
+  echo 'upgrade on empty install unexpectedly succeeded' >&2
+  exit 1
+fi
+grep -q 'no existing installation found' "$WORK/upgrade.out"
+check 'upgrade install guard'
+
 # Uninstall stops containers but keeps configuration and volumes by default.
 uninstall_dir="$WORK/uninstall"
 run_installer "$uninstall_dir" --version v1.4.0 >/dev/null

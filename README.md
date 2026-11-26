@@ -200,7 +200,7 @@ The installer:
 - writes a managed `docker-compose.yml` and a `chmod 600` `.env`,
 - fixes the Compose project name to `depyard` so renaming a directory does not orphan volumes,
 - generates the initial admin password on a fresh install and prints it once,
-- is safe to re-run for upgrades; `.env` and volumes are never reset.
+- supports `bash install.sh --upgrade`; `.env` and volumes are never reset.
 
 To pin a specific version, download that release's script and pass the same tag:
 
@@ -296,14 +296,21 @@ containers are stateless, so accounts, tokens and artifacts are preserved.
 Use the same `HTTP_PORT` (and any `.env` values) as your original install.
 
 With the one-command installer, download the new release's `install.sh` and run
-it again. It regenerates the managed Compose file and restarts the stack while
-preserving `.env`, the admin password and both volumes:
+it with `--upgrade`. It reports the old → new version, regenerates the managed
+Compose file and restarts the stack while preserving `.env`, the admin password
+and both volumes:
 
 ```bash
 curl -fsSL \
   https://github.com/amkargar/depyard/releases/latest/download/install.sh \
   -o install.sh
-bash install.sh
+bash install.sh --upgrade
+```
+
+To upgrade to a specific tag instead of the script's pinned version:
+
+```bash
+bash install.sh --upgrade --version v1.5.0
 ```
 
 ### Online (pull from GHCR)

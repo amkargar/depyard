@@ -32,6 +32,7 @@ VERSION="${DEPWARD_VERSION:-$INSTALLER_VERSION}"
 IMAGE_PREFIX="$INSTALLER_IMAGE_PREFIX"
 MODE="online"
 UPGRADE=0
+INSTALLED_VERSION=''
 UNINSTALL=0
 PURGE=0
 ASSUME_YES=0
@@ -61,7 +62,8 @@ Options:
   --version <tag>        Install a specific release (e.g. v1.4.0).
   --install-dir <path>   Where to keep .env and the managed Compose file.
   --http-port <port>     Host port for the web UI (default: 8080).
-  --upgrade              Re-apply the current release (same as a normal re-run).
+  --upgrade [<version>]  Upgrade an existing install to this script's version,
+                         or to the optional version tag.
   --uninstall            Stop and remove containers; keep .env and data volumes.
   --purge                With --uninstall, also delete .env and data volumes.
   --yes                  Skip the --purge confirmation (for automation).
@@ -89,7 +91,14 @@ while [[ $# -gt 0 ]]; do
     --http-port)
       [[ $# -ge 2 ]] || fail "--http-port needs a value"
       HTTP_PORT="$2"; HTTP_PORT_EXPLICIT=1; shift 2 ;;
-    --upgrade) UPGRADE=1; shift ;;
+    --upgrade)
+      UPGRADE=1
+      if [[ $# -ge 2 && "$2" =~ ^v?[0-9] ]]; then
+        VERSION="$2"; shift 2
+      else
+        shift
+      fi
+      ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
@@ -100,6 +109,9 @@ done
 
 if [[ "$PURGE" -eq 1 && "$UNINSTALL" -eq 0 ]]; then
   fail "--purge only applies with --uninstall"
+fi
+if [[ "$UPGRADE" -eq 1 && "$UNINSTALL" -eq 1 ]]; then
+  fail "--upgrade and --uninstall are mutually exclusive"
 fi
 
 [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || fail "HTTP_PORT must be a number, got '$HTTP_PORT'"
@@ -212,9 +224,11 @@ if [[ -f "$STATE_FILE" ]]; then
   source "$STATE_FILE"
   [[ "${DEPWARD_STATE_VERSION:-}" == "1" ]] || fail "unsupported installer state in $STATE_FILE"
   PROJECT_NAME="${DEPWARD_PROJECT_NAME:-depyard}"
+  INSTALLED_VERSION="${DEPWARD_VERSION:-}"
 elif [[ -f "$ENV_FILE" ]]; then
   PROJECT_NAME="$(env_value COMPOSE_PROJECT_NAME "$ENV_FILE")"
   PROJECT_NAME="${PROJECT_NAME:-depyard}"
+  INSTALLED_VERSION="$(env_value DEPWARD_VERSION "$ENV_FILE")"
 else
   volume_names=()
   while IFS= read -r volume; do
@@ -249,6 +263,10 @@ fi
 
 [[ "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || \
   fail "invalid Compose project name '$PROJECT_NAME' (use lowercase letters, digits, '-' or '_')"
+
+if [[ "$UPGRADE" -eq 1 && -z "$INSTALLED_VERSION" && ! -f "$ENV_FILE" && ! -f "$COMPOSE_FILE" && -z "$LEGACY_PROJECT" ]]; then
+  fail "no existing installation found in $INSTALL_DIR; run without --upgrade to install"
+fi
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
   uninstall
@@ -465,7 +483,13 @@ if [[ "$FRESH" -eq 1 ]]; then
 elif [[ -n "$LEGACY_PROJECT" ]]; then
   info "Adopting existing Depyard volumes"
 elif [[ "$UPGRADE" -eq 1 ]]; then
-  info "Upgrading Depyard to ${VERSION}"
+  if [[ -n "$INSTALLED_VERSION" && "$INSTALLED_VERSION" != "$VERSION" ]]; then
+    info "Upgrading Depyard ${INSTALLED_VERSION} -> ${VERSION}"
+  elif [[ -n "$INSTALLED_VERSION" ]]; then
+    info "Depyard ${VERSION} is already installed; re-applying"
+  else
+    info "Upgrading legacy Depyard installation to ${VERSION}"
+  fi
 else
   info "Re-applying Depyard ${VERSION}"
 fi
@@ -473,6 +497,9 @@ fi
 write_env_file
 write_compose_file
 ok "Wrote configuration and managed Compose file"
+if [[ "$UPGRADE" -eq 1 ]]; then
+  ok "Preserving .env, installer state and data volumes"
+fi
 
 if [[ "$MODE" == "offline" ]]; then
   case "$(uname -m)" in
