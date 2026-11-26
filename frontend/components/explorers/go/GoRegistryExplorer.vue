@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Search, Copy, Check, Package, Layers, Download, ArrowRight, Terminal } from 'lucide-vue-next'
 import type { PublicRegistryView } from '~/types/registry'
-import { formatRelative, copyText } from '~/utils/format'
+import { formatRelative, copyText, encodePathSegments } from '~/utils/format'
 
 const props = defineProps<{
   registry: PublicRegistryView
@@ -199,7 +199,7 @@ watch(() => props.registry.slug, () => {
         <NuxtLink
           v-for="m in modules"
           :key="m.id"
-          :to="`/explore/${registry.slug}/packages/${m.path}`"
+          :to="`/explore/${registry.slug}/packages/${encodePathSegments(m.path)}`"
           class="group rounded-xl border bg-card p-4 transition-colors hover:border-cyan-300"
         >
           <div class="flex items-start justify-between gap-3">
