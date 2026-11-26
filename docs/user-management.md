@@ -51,6 +51,34 @@ The bootstrap administrator is created whenever **no active administrator
 exists**, not merely when the user table is empty. If the only administrator is
 removed, the next start creates a new one.
 
+Two behaviours worth knowing before you rely on `ADMIN_PASSWORD`:
+
+- **It only applies when the account is created.** Changing `ADMIN_PASSWORD`
+  on a running installation does nothing — it does not reset the existing
+  administrator's password, and it is not a backdoor to regain access. Use the
+  profile page (or another administrator) to change a password, or remove every
+  active administrator to trigger a fresh bootstrap.
+- **It is validated like any other password.** A value shorter than
+  `MIN_PASSWORD_LENGTH` makes the server refuse to start with
+  `failed to bootstrap admin account: password must be at least 12 characters`.
+  This matters because the pre-1.0 default value (`admin123`) is now rejected
+  outright, so an old deployment that relied on it fails closed rather than
+  coming up with a weak credential.
+
+If the installation has no active administrator **and** the configured
+`ADMIN_USERNAME` already belongs to an account that cannot administer it, the
+server refuses to start and says which identity clashes and how to resolve it:
+
+```
+failed to bootstrap admin account: cannot bootstrap administrator:
+username "admin" is already used by a non-administrator account (role "user", disabled false);
+set ADMIN_USERNAME to a different name and restart, or restore administrator access for that account
+```
+
+Bootstrap never promotes an existing account or resets its password, because
+silently taking over an account that happens to share the configured name would
+be a privilege-escalation path.
+
 ## Password policy
 
 Passwords must be at least **12 characters**. The floor is configurable with the
@@ -274,7 +302,7 @@ Editing a user through `PUT /api/admin/users/{id}`:
 | Variable | Default | Meaning |
 |---|---|---|
 | `ADMIN_USERNAME` | `admin` | Username of the bootstrapped administrator. |
-| `ADMIN_PASSWORD` | *(generated)* | Password of the bootstrapped administrator. |
+| `ADMIN_PASSWORD` | *(generated)* | Password for the bootstrapped administrator, applied **only when the account is created**. |
 | `MIN_PASSWORD_LENGTH` | `12` | Minimum accepted password length. |
 | `SESSION_TTL` | `24h` | How long a session cookie stays valid. |
 

@@ -86,7 +86,9 @@ WARN no ADMIN_PASSWORD configured: a password was generated for the initial admi
      username=admin password=<generated>
 ```
 
-Store it, then change it from **My Account → Profile** after signing in. Passwords must be at least 12 characters (`MIN_PASSWORD_LENGTH` can relax the floor for existing deployments). See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
+Store it, then change it from **My Account → Profile** after signing in. Passwords must be at least 12 characters (`MIN_PASSWORD_LENGTH` can relax the floor for existing deployments).
+
+`ADMIN_PASSWORD` is only read when the account is **created** — changing it later does not reset an existing administrator's password. A value shorter than the minimum makes the server refuse to start rather than come up with a weak credential (the old `admin123` default is rejected outright). See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
 
 ### 2. Via the Admin Web UI
 
