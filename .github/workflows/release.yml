@@ -246,7 +246,18 @@ jobs:
           bash install.sh --version ${RELEASE_TAG}
           \`\`\`
 
+          To upgrade an existing install, download the newer installer and run \`bash install.sh --upgrade\` (or add \`--version <tag>\`). It preserves \`.env\` and both data volumes.
+
           For an air-gapped host, also download the matching image archive and \`SHA256SUMS.txt\` next to \`install.sh\`, then run \`bash install.sh --offline\` (the stamped script already knows the version).
+
+          ### Uninstall
+          Use the same script to stop the stack. Without \`--purge\`, configuration and data volumes are kept:
+
+          \`\`\`bash
+          bash install.sh --uninstall
+          \`\`\`
+
+          Add \`--purge\` to delete \`.env\`, the installer state and both volumes as well. It asks for confirmation; add \`--yes\` for automation.
 
           ### Manual Compose (optional)
           The release still includes \`docker-compose.release.yml\` for operators who prefer to run Compose directly:

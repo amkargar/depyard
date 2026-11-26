@@ -24,7 +24,7 @@ case "$1" in
     shift
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        version|pull|up) exit 0 ;;
+        version|pull|up|down) exit 0 ;;
       esac
       shift
     done
@@ -107,5 +107,58 @@ grep -q '^COMPOSE_PROJECT_NAME=oldproj$' "$legacy/.env"
 [[ "$out" != *'Password:'* ]]
 grep -q '^ADMIN_PASSWORD=$' "$legacy/.env"
 check 'legacy volume adoption'
+
+# Upgrade moves an installer-managed install to a newer stamped version.
+upgrade_dir="$WORK/upgrade"
+run_installer "$upgrade_dir" --version v1.4.0 >/dev/null
+out="$(run_installer "$upgrade_dir" --upgrade v1.5.0)"
+[[ "$out" == *'Upgrading Depyard v1.4.0 -> v1.5.0'* ]]
+[[ "$out" != *'Password:'* ]]
+grep -q '^DEPWARD_VERSION=v1.5.0$' "$upgrade_dir/.depyard-state"
+grep -q 'image: ghcr.io/amkargar/depyard-backend:v1.5.0' "$upgrade_dir/docker-compose.yml"
+grep -q '^HTTP_PORT=8080$' "$upgrade_dir/.env"
+check 'upgrade to a newer version'
+
+# Re-applying the same version is reported clearly.
+out="$(run_installer "$upgrade_dir" --upgrade v1.5.0)"
+[[ "$out" == *'already installed; re-applying'* ]]
+check 'same-version upgrade'
+
+# Upgrade refuses to create a brand-new installation.
+export VOLUMES_OUT=''
+if run_installer "$WORK/empty-upgrade" --upgrade v1.5.0 >"$WORK/upgrade.out" 2>&1; then
+  echo 'upgrade on empty install unexpectedly succeeded' >&2
+  exit 1
+fi
+grep -q 'no existing installation found' "$WORK/upgrade.out"
+check 'upgrade install guard'
+
+# Uninstall stops containers but keeps configuration and volumes by default.
+uninstall_dir="$WORK/uninstall"
+run_installer "$uninstall_dir" --version v1.4.0 >/dev/null
+out="$(run_installer "$uninstall_dir" --version v1.4.0 --uninstall)"
+[[ "$out" == *'Configuration and data volumes were kept'* ]]
+[[ -f "$uninstall_dir/.env" ]]
+[[ -f "$uninstall_dir/docker-compose.yml" ]]
+[[ -f "$uninstall_dir/.depyard-state" ]]
+grep -q 'down --remove-orphans' "$DOCKER_LOG"
+check 'uninstall keeps config and volumes'
+
+# Purge removes volumes and configuration without prompting when --yes is given.
+out="$(run_installer "$uninstall_dir" --version v1.4.0 --uninstall --purge --yes)"
+[[ "$out" == *'uninstalled'* ]]
+grep -q 'down --volumes --remove-orphans' "$DOCKER_LOG"
+[[ ! -e "$uninstall_dir/.env" ]]
+[[ ! -e "$uninstall_dir/docker-compose.yml" ]]
+[[ ! -e "$uninstall_dir/.depyard-state" ]]
+check 'purge removes config and volumes'
+
+# --purge without --uninstall is rejected.
+if run_installer "$uninstall_dir" --version v1.4.0 --purge >"$WORK/purge.out" 2>&1; then
+  echo '--purge without --uninstall unexpectedly succeeded' >&2
+  exit 1
+fi
+grep -q -- '--purge only applies with --uninstall' "$WORK/purge.out"
+check 'purge guard'
 
 printf 'Installer smoke tests passed.\n'
