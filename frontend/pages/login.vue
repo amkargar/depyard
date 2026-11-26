@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Boxes, Lock } from 'lucide-vue-next'
+import { Lock } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,10 +48,8 @@ async function handleSubmit() {
   <div class="mx-auto max-w-md px-4 py-16">
     <UiCard class="p-7 space-y-6">
       <div class="text-center space-y-2">
-        <div class="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#122030] text-sky-400">
-          <Boxes class="h-5 w-5" />
-        </div>
-        <h1 class="text-xl font-bold tracking-tight">Sign In</h1>
+        <img src="/logo.png" alt="Depyard" width="64" height="64" class="mx-auto h-16 w-16 object-contain" />
+        <h1 class="text-xl font-bold tracking-tight">Sign in to Depyard</h1>
         <p class="text-xs text-muted-foreground">
           Access your personal dashboard, personal access tokens, and — for administrators — the
           registry console.

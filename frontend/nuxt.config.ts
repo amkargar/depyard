@@ -14,6 +14,8 @@ export default defineNuxtConfig({
     head: {
       title: 'Depyard',
       link: [
+        { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon.png' },
+        { rel: 'apple-touch-icon', href: '/logo.png' },
         // Self-hosted Roboto (SIL OFL 1.1) — see /public/fonts/roboto/OFL.txt
         {
           rel: 'preload',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Package, Download, Globe, Lock, Boxes, Shield } from 'lucide-vue-next'
+import { ArrowRight, Package, Download, Globe, Lock, Shield } from 'lucide-vue-next'
 import type { PublicRegistryView } from '~/types/registry'
 
 interface DirectoryResponse {
@@ -42,8 +42,8 @@ onMounted(async () => {
       <div class="mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-16">
         <div class="max-w-3xl">
           <div class="inline-flex items-center gap-2 rounded-full bg-sky-500/15 border border-sky-400/25 px-3 py-1 text-xs font-medium text-sky-300 mb-4">
-            <Boxes class="h-3.5 w-3.5" />
-            Self-Hosted Multi-Registry Platform
+            <img src="/logo.png" alt="" width="20" height="20" class="h-5 w-5 object-contain" />
+            Depyard · Self-Hosted Multi-Registry Platform
           </div>
           <h1 class="text-3xl sm:text-4xl font-bold tracking-tight">
             Package &amp; Artifact Registries

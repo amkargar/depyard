@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  Boxes,
   LayoutDashboard,
   UserCircle,
   KeyRound,
@@ -54,9 +53,7 @@ async function handleLogout() {
     >
       <div class="h-14 border-b px-4 flex items-center justify-between">
         <NuxtLink to="/dashboard" class="flex items-center gap-2.5 font-semibold tracking-tight text-sm">
-          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-[#122030] text-sky-400">
-            <Boxes class="h-4 w-4" />
-          </div>
+          <img src="/logo.png" alt="" width="36" height="36" class="h-9 w-9 shrink-0 object-contain" />
           <span>Depyard</span>
         </NuxtLink>
         <button type="button" class="lg:hidden p-1 text-muted-foreground" @click="mobileOpen = false">
