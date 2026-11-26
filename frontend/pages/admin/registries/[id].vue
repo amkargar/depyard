@@ -111,6 +111,12 @@ async function revertFieldToBase(key: string) {
 const artLoading = ref(false)
 const artSearch = ref('')
 const artOrigin = ref('')
+
+const artifactOriginOptions = computed(() => [
+  { value: '', label: 'All Origins' },
+  { value: 'hosted', label: 'Hosted' },
+  { value: 'cached', label: 'Cached' },
+])
 const artPage = ref(1)
 const artifacts = ref<ArtifactPage>({ items: [], total: 0, page: 1, limit: 20 })
 
@@ -595,12 +601,10 @@ onMounted(async () => {
           <UiSelect
             v-model="artOrigin"
             class="w-40"
+            :options="artifactOriginOptions"
+            aria-label="Filter artifacts by origin"
             @update:model-value="() => { artPage = 1; loadArtifacts() }"
-          >
-            <option value="">All Origins</option>
-            <option value="hosted">Hosted</option>
-            <option value="cached">Cached</option>
-          </UiSelect>
+          />
           <UiButton variant="outline" size="sm" @click="loadArtifacts">Refresh</UiButton>
         </div>
 

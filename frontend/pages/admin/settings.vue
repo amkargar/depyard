@@ -128,6 +128,11 @@ const flutterBaseMode = ref<'defaults' | 'inherit'>('defaults')
 
 const applyOpen = ref(false)
 const applyMode = ref<'fill-missing' | 'overwrite'>('fill-missing')
+
+const applyModeOptions = computed(() => [
+  { value: 'fill-missing', label: 'Fill missing only — never overwrite registry values' },
+  { value: 'overwrite', label: 'Overwrite — replace selected fields with base values' },
+])
 const applyFields = ref<string[]>([])
 const applyScope = ref<string[]>([])
 const applyPreview = ref<BaseConfigImpact | null>(null)
@@ -521,10 +526,12 @@ onMounted(loadSettings)
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="space-y-1.5">
             <label class="text-xs font-medium">Apply mode</label>
-            <UiSelect v-model="applyMode" @change="runApply(true)">
-              <option value="fill-missing">Fill missing only — never overwrite registry values</option>
-              <option value="overwrite">Overwrite — replace selected fields with base values</option>
-            </UiSelect>
+            <UiSelect
+              v-model="applyMode"
+              :options="applyModeOptions"
+              aria-label="Apply mode"
+              @change="runApply(true)"
+            />
             <p class="text-[11px] text-muted-foreground">
               {{
                 applyMode === 'fill-missing'

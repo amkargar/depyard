@@ -9,6 +9,14 @@ const loading = ref(true)
 const errorMsg = ref('')
 const tokens = ref<AccessToken[]>([])
 const registries = ref<RegistryInstance[]>([])
+
+const registryScopeOptions = computed(() => [
+  { value: '', label: 'All Registries' },
+  ...registries.value.map((r) => ({
+    value: r.id,
+    label: `${r.name} (/r/${r.slug} · ${r.type})`,
+  })),
+])
 const createOpen = ref(false)
 const saving = ref(false)
 const createdPlaintext = ref('')
@@ -227,12 +235,11 @@ onMounted(loadData)
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Registry Scope</label>
-          <UiSelect v-model="form.registry_id">
-            <option value="">All Registries</option>
-            <option v-for="r in registries" :key="r.id" :value="r.id">
-              {{ r.name }} (/r/{{ r.slug }} · {{ r.type }})
-            </option>
-          </UiSelect>
+          <UiSelect
+            v-model="form.registry_id"
+            :options="registryScopeOptions"
+            aria-label="Registry scope"
+          />
         </div>
 
         <div class="space-y-1.5">

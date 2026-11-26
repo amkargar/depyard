@@ -12,6 +12,11 @@ const users = ref<User[]>([])
 const createOpen = ref(false)
 const saving = ref(false)
 
+const roleOptions = computed(() => [
+  { value: 'user', label: 'User' },
+  { value: 'admin', label: 'Administrator' },
+])
+
 const form = reactive({
   username: '',
   email: '',
@@ -168,10 +173,11 @@ onMounted(loadUsers)
         </div>
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Role</label>
-          <UiSelect v-model="form.role">
-            <option value="user">User</option>
-            <option value="admin">Administrator</option>
-          </UiSelect>
+          <UiSelect
+            v-model="form.role"
+            :options="roleOptions"
+            aria-label="User role"
+          />
         </div>
       </form>
       <template #footer>

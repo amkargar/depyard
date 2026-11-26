@@ -21,6 +21,7 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/metrics"
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
+	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
 	"github.com/amkargar/mirror-registry/backend/internal/server"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
@@ -47,6 +48,7 @@ func main() {
 		settingsStore admin.SettingsStore
 		pubStore      pub.MetadataStore
 		flutterStore  flutter.MetadataStore
+		goStore       goproxy.MetadataStore
 		closeStore    func(context.Context) error
 	)
 
@@ -61,6 +63,7 @@ func main() {
 		settingsStore = ms
 		pubStore = pub.NewMemoryStore()
 		flutterStore = flutter.NewMemoryStore()
+		goStore = goproxy.NewMemoryStore()
 	} else {
 		mongoDB, err := mongostore.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase)
 		if err != nil {
@@ -88,6 +91,13 @@ func main() {
 			os.Exit(1)
 		}
 		flutterStore = fs
+
+		gs, err := goproxy.NewMongoStore(ctx, mongoDB.Database())
+		if err != nil {
+			logger.Error("failed to initialize go proxy metadata store", "error", err)
+			os.Exit(1)
+		}
+		goStore = gs
 		logger.Info("connected to MongoDB", "database", cfg.MongoDatabase)
 	}
 	if closeStore != nil {
@@ -144,6 +154,10 @@ func main() {
 		logger.Error("failed to register flutter storage registry type", "error", err)
 		os.Exit(1)
 	}
+	if err := regManager.RegisterType(goproxy.Registration(goStore)); err != nil {
+		logger.Error("failed to register go module proxy registry type", "error", err)
+		os.Exit(1)
+	}
 
 	// Load all persisted registry instances
 	if err := regManager.LoadAll(ctx); err != nil {
@@ -179,6 +193,34 @@ func main() {
 				logger.Warn("could not seed default registry instance", "error", createErr)
 			} else {
 				logger.Info("seeded default registry instance", "slug", defInst.Slug, "type", defInst.Type, "mode", defInst.Mode)
+			}
+
+			if cfg.SeedGoProxy {
+				goInst, goErr := regManager.CreateInstance(ctx, &registry.Instance{
+					Name:        cfg.DefaultGoName,
+					Slug:        cfg.DefaultGoSlug,
+					Type:        goproxy.RegistryType,
+					Description: "Go module proxy (GOPROXY protocol) mirroring proxy.golang.org.",
+					Enabled:     true,
+					Mode:        registry.ModeProxy,
+					UpstreamURL: cfg.DefaultGoUpstreamURL,
+					Visibility:  registry.VisibilityPublic,
+					AuthPolicy: registry.AuthPolicy{
+						AllowAnonymousRead: true,
+						RequireAuthPublish: true,
+					},
+					CachePolicy: registry.DefaultCachePolicy(),
+					Config: map[string]any{
+						"upstream_timeout_seconds": 60,
+						"include_prerelease":       true,
+					},
+					IsDefault: true,
+				})
+				if goErr != nil {
+					logger.Warn("could not seed default go proxy instance", "error", goErr)
+				} else {
+					logger.Info("seeded default go proxy instance", "slug", goInst.Slug, "type", goInst.Type, "mode", goInst.Mode)
+				}
 			}
 
 			if cfg.SeedFlutterStorage {
@@ -406,9 +448,9 @@ func makeSamplePubArchive(name, version, description, repo, readme, changelog st
 		"dependencies:\n  meta: ^1.11.0\n"
 
 	files := map[string]string{
-		"pubspec.yaml":         pubspec,
-		"README.md":            readme,
-		"CHANGELOG.md":         changelog,
+		"pubspec.yaml":          pubspec,
+		"README.md":             readme,
+		"CHANGELOG.md":          changelog,
 		"lib/" + name + ".dart": "library " + name + ";\nconst String packageVersion = '" + version + "';\n",
 	}
 	for fname, content := range files {
