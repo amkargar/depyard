@@ -34,9 +34,16 @@ function isActive(item: (typeof navItems)[number]) {
 }
 
 onMounted(async () => {
-  const ok = await refresh()
-  if (!ok) {
+  const authenticated = await refresh()
+  if (!authenticated) {
     await router.replace(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
+    return
+  }
+  // A signed-in regular user is not banned from the console, they simply do
+  // not belong in it: send them to their own dashboard instead of back to the
+  // login page, which used to trap them in a redirect loop.
+  if (!isAdmin.value) {
+    await router.replace('/dashboard')
     return
   }
   authReady.value = true

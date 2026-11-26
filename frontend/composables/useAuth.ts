@@ -12,16 +12,19 @@ export function useAuth() {
   const isAdmin = useState<boolean>('auth_is_admin', () => false)
   const checked = useState<boolean>('auth_checked', () => false)
 
+  // `refresh()` reports whether the caller is authenticated. It used to return
+  // the administrator flag instead, which made every signed-in regular user look
+  // like an anonymous visitor and sent them back to the login page.
   async function refresh(force = false): Promise<boolean> {
     if (checked.value && !force) {
-      return isAdmin.value
+      return user.value !== null
     }
     try {
       const res = await apiFetch<AuthMeResponse>('/api/admin/auth/me')
       user.value = res.user ?? null
       isAdmin.value = Boolean(res.authenticated && res.is_admin)
       checked.value = true
-      return isAdmin.value
+      return Boolean(res.authenticated && res.user)
     } catch {
       user.value = null
       isAdmin.value = false
@@ -50,6 +53,12 @@ export function useAuth() {
     }
   }
 
+  // homePath returns the landing page for the current session: administrators
+  // get the admin console, regular users get their personal dashboard.
+  function homePath(): string {
+    return isAdmin.value ? '/admin' : '/dashboard'
+  }
+
   return {
     user,
     isAdmin,
@@ -57,5 +66,6 @@ export function useAuth() {
     refresh,
     login,
     logout,
+    homePath,
   }
 }

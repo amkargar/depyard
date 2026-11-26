@@ -77,6 +77,13 @@ func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 	return s.db.Collection(ColUsers).CountDocuments(ctx, bson.M{})
 }
 
+func (s *Store) CountActiveAdmins(ctx context.Context) (int64, error) {
+	return s.db.Collection(ColUsers).CountDocuments(ctx, bson.M{
+		"role":     auth.RoleAdmin,
+		"disabled": bson.M{"$ne": true},
+	})
+}
+
 func (s *Store) CreateSession(ctx context.Context, session *auth.Session) error {
 	_, err := s.db.Collection(ColSessions).InsertOne(ctx, session)
 	return err
@@ -141,6 +148,23 @@ func (s *Store) ListTokens(ctx context.Context, registryID string) ([]*auth.Acce
 	return out, nil
 }
 
+func (s *Store) ListTokensByUser(ctx context.Context, userID string) ([]*auth.AccessToken, error) {
+	cur, err := s.db.Collection(ColTokens).Find(
+		ctx,
+		bson.M{"user_id": userID},
+		options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var out []*auth.AccessToken
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateTokenLastUsed(ctx context.Context, id string, ts time.Time) error {
 	_, err := s.db.Collection(ColTokens).UpdateOne(
 		ctx,
@@ -163,6 +187,15 @@ func (s *Store) RevokeToken(ctx context.Context, id string) error {
 		return auth.ErrNotFound
 	}
 	return nil
+}
+
+func (s *Store) RevokeTokensByUser(ctx context.Context, userID string) error {
+	_, err := s.db.Collection(ColTokens).UpdateMany(
+		ctx,
+		bson.M{"user_id": userID, "revoked": bson.M{"$ne": true}},
+		bson.M{"$set": bson.M{"revoked": true}},
+	)
+	return err
 }
 
 func (s *Store) DeleteToken(ctx context.Context, id string) error {

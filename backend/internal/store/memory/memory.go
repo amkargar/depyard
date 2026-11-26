@@ -16,16 +16,16 @@ import (
 
 // Store provides thread-safe in-memory persistence for tests and standalone local development.
 type Store struct {
-	mu           sync.RWMutex
-	instances    map[string]*registry.Instance
-	blobs        map[string]*storage.Blob
-	refs         map[string]*storage.ArtifactRef // key: registryID + "::" + artifactKey
-	users        map[string]*auth.User
-	sessions     map[string]*auth.Session // key: tokenHash
-	tokens       map[string]*auth.AccessToken
-	stats        map[string]*metrics.BucketRecord // key: id
-	auditLogs    []*audit.Entry
-	settings     *admin.PlatformSettings
+	mu        sync.RWMutex
+	instances map[string]*registry.Instance
+	blobs     map[string]*storage.Blob
+	refs      map[string]*storage.ArtifactRef // key: registryID + "::" + artifactKey
+	users     map[string]*auth.User
+	sessions  map[string]*auth.Session // key: tokenHash
+	tokens    map[string]*auth.AccessToken
+	stats     map[string]*metrics.BucketRecord // key: id
+	auditLogs []*audit.Entry
+	settings  *admin.PlatformSettings
 }
 
 func New() *Store {
@@ -351,6 +351,18 @@ func (s *Store) DeleteUser(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *Store) CountActiveAdmins(_ context.Context) (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var count int64
+	for _, u := range s.users {
+		if u.Role == auth.RoleAdmin && !u.Disabled {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *Store) CountUsers(_ context.Context) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -444,6 +456,21 @@ func (s *Store) ListTokens(_ context.Context, registryID string) ([]*auth.Access
 	return out, nil
 }
 
+func (s *Store) ListTokensByUser(_ context.Context, userID string) ([]*auth.AccessToken, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*auth.AccessToken
+	for _, tok := range s.tokens {
+		if tok.UserID != userID {
+			continue
+		}
+		cp := *tok
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
 func (s *Store) UpdateTokenLastUsed(_ context.Context, id string, ts time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -462,6 +489,17 @@ func (s *Store) RevokeToken(_ context.Context, id string) error {
 		return auth.ErrNotFound
 	}
 	tok.Revoked = true
+	return nil
+}
+
+func (s *Store) RevokeTokensByUser(_ context.Context, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, tok := range s.tokens {
+		if tok.UserID == userID {
+			tok.Revoked = true
+		}
+	}
 	return nil
 }
 
