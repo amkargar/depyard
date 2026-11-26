@@ -4,7 +4,15 @@ import { getRegistryExplorer } from '~/utils/registryExplorers'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
-const packageName = computed(() => String(route.params.name || ''))
+
+// The route uses a catch-all param because Go module paths contain slashes
+// (e.g. "github.com/pkg/errors"). Vue Router exposes catch-all params as an
+// array of path segments, which must be rejoined with "/".
+const packageName = computed(() => {
+  const raw = route.params.name
+  if (Array.isArray(raw)) return raw.join('/')
+  return String(raw || '')
+})
 
 const loading = ref(true)
 const errorMsg = ref('')

@@ -154,7 +154,7 @@ watch(() => [props.registry.slug, props.packageName], loadDetail)
           <span v-if="detail.package.replaced_by">
             Consider migrating to
             <NuxtLink
-              :to="`/explore/${registry.slug}/packages/${encodeURIComponent(detail.package.replaced_by)}`"
+              :to="`/explore/${registry.slug}/packages/${encodePathSegments(detail.package.replaced_by)}`"
               class="underline font-medium"
             >
               {{ detail.package.replaced_by }}
@@ -485,7 +485,7 @@ watch(() => [props.registry.slug, props.packageName], loadDetail)
                 <NuxtLink
                   v-for="[depName] in dependencies"
                   :key="depName"
-                  :to="`/explore/${registry.slug}/packages/${encodeURIComponent(depName)}`"
+                  :to="`/explore/${registry.slug}/packages/${encodePathSegments(depName)}`"
                   class="rounded bg-slate-100 hover:bg-slate-200 px-2 py-0.5 text-xs font-mono text-[#0175c2] transition-colors"
                 >
                   {{ depName }}
