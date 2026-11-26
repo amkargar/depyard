@@ -33,6 +33,10 @@ services:
       SEED_GO_PROXY: "true"
       DEFAULT_GO_SLUG: go-proxy
       DEFAULT_GO_UPSTREAM_URL: https://proxy.golang.org
+      SEED_PYPI: "true"
+      DEFAULT_PYPI_SLUG: python-packages
+      DEFAULT_PYPI_MODE: hybrid
+      DEFAULT_PYPI_UPSTREAM_URL: https://pypi.org
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme123
     volumes:

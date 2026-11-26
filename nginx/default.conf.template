@@ -60,6 +60,22 @@ server {
         proxy_pass http://mirror_backend;
     }
 
+    # Optional root-level Python index compatibility routes
+    # (/simple/{project}/ for the Simple API, /legacy/ for Twine uploads)
+    location ^~ /simple/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
+    location ^~ /legacy/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_pass http://mirror_backend;
+    }
+
     # Optional root-level FLUTTER_STORAGE_BASE_URL compatibility routes
     location ^~ /flutter_infra_release/ {
         include /etc/nginx/includes/proxy_params.conf;
