@@ -32,6 +32,9 @@ VERSION="${DEPWARD_VERSION:-$INSTALLER_VERSION}"
 IMAGE_PREFIX="$INSTALLER_IMAGE_PREFIX"
 MODE="online"
 UPGRADE=0
+UNINSTALL=0
+PURGE=0
+ASSUME_YES=0
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   BOLD=$'\033[1m'; BLUE=$'\033[34m'; GREEN=$'\033[32m'
@@ -59,6 +62,9 @@ Options:
   --install-dir <path>   Where to keep .env and the managed Compose file.
   --http-port <port>     Host port for the web UI (default: 8080).
   --upgrade              Re-apply the current release (same as a normal re-run).
+  --uninstall            Stop and remove containers; keep .env and data volumes.
+  --purge                With --uninstall, also delete .env and data volumes.
+  --yes                  Skip the --purge confirmation (for automation).
   -h, --help             Show this help.
 
 Environment:
@@ -84,10 +90,17 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || fail "--http-port needs a value"
       HTTP_PORT="$2"; HTTP_PORT_EXPLICIT=1; shift 2 ;;
     --upgrade) UPGRADE=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    --purge) PURGE=1; shift ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument '$1' (try --help)" ;;
   esac
 done
+
+if [[ "$PURGE" -eq 1 && "$UNINSTALL" -eq 0 ]]; then
+  fail "--purge only applies with --uninstall"
+fi
 
 [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || fail "HTTP_PORT must be a number, got '$HTTP_PORT'"
 [[ "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || fail "invalid version '$VERSION'"
@@ -138,6 +151,58 @@ generate_password() {
   printf '%s' "$value"
 }
 
+compose() {
+  "$DOCKER_BIN" compose \
+    --project-name "$PROJECT_NAME" \
+    --project-directory "$INSTALL_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
+
+uninstall() {
+  local confirmation volume
+
+  if [[ -f "$COMPOSE_FILE" ]]; then
+    info "Stopping Depyard containers"
+    compose down --remove-orphans || warn "could not remove all Depyard containers"
+  else
+    warn "No managed Compose file at $COMPOSE_FILE; skipping container removal"
+  fi
+
+  if [[ "$PURGE" -eq 0 ]]; then
+    ok "Depyard stopped. Configuration and data volumes were kept."
+    printf '\n  To delete data and configuration too: bash install.sh --uninstall --purge\n\n'
+    return 0
+  fi
+
+  printf '\n%s%s%s\n' "$YELLOW" "This permanently deletes:" "$RESET"
+  printf '  - the Compose project %q and all its containers/networks\n' "$PROJECT_NAME"
+  printf '  - MongoDB volume %s (users, tokens, registry metadata)\n' "${PROJECT_NAME}_mongo_data"
+  printf '  - blobs volume %s (all stored artifacts)\n' "${PROJECT_NAME}_registry_blobs"
+  printf '  - %s, %s, and %s\n\n' "$ENV_FILE" "$STATE_FILE" "$COMPOSE_FILE"
+
+  if [[ "$ASSUME_YES" -eq 0 ]]; then
+    read -r -p "Type 'yes' to continue: " confirmation
+    [[ "$confirmation" == "yes" ]] || fail "uninstall aborted"
+  fi
+
+  if [[ -f "$COMPOSE_FILE" ]]; then
+    info "Removing containers and volumes"
+    compose down --volumes --remove-orphans || warn "could not remove all Depyard volumes"
+  else
+    info "Removing Depyard volumes"
+    while IFS= read -r volume; do
+      [[ -n "$volume" ]] || continue
+      "$DOCKER_BIN" volume rm "$volume" >/dev/null 2>&1 || warn "could not remove volume $volume"
+    done < <("$DOCKER_BIN" volume ls --format '{{.Name}}' 2>/dev/null | grep -E "^${PROJECT_NAME}[_-](mongo_data|registry_blobs)$" || true)
+  fi
+
+  rm -f "$ENV_FILE" "$STATE_FILE" "$COMPOSE_FILE"
+  rmdir "$INSTALL_DIR" 2>/dev/null || true
+  ok "Depyard uninstalled; containers, volumes and configuration were removed."
+}
+
 # Decide whether this is a fresh install, an installer-managed install, or an
 # older install whose volumes exist but whose state file is missing.
 FRESH=0
@@ -184,6 +249,11 @@ fi
 
 [[ "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || \
   fail "invalid Compose project name '$PROJECT_NAME' (use lowercase letters, digits, '-' or '_')"
+
+if [[ "$UNINSTALL" -eq 1 ]]; then
+  uninstall
+  exit 0
+fi
 
 # Read back any values already stored in .env so a re-run never rotates the password.
 existing_username="$(env_value ADMIN_USERNAME "$ENV_FILE")"
@@ -331,15 +401,6 @@ DEPWARD_PASSWORD_SOURCE=${PASSWORD_SOURCE}
 EOF
   chmod 600 "$tmp"
   mv -f "$tmp" "$STATE_FILE"
-}
-
-compose() {
-  "$DOCKER_BIN" compose \
-    --project-name "$PROJECT_NAME" \
-    --project-directory "$INSTALL_DIR" \
-    --env-file "$ENV_FILE" \
-    -f "$COMPOSE_FILE" \
-    "$@"
 }
 
 verify_archive() {

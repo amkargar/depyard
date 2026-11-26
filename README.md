@@ -206,15 +206,42 @@ To pin a specific version, download that release's script and pass the same tag:
 
 ```bash
 curl -fsSL \
-  https://github.com/amkargar/depyard/releases/download/v1.4.0/install.sh \
+  https://github.com/amkargar/depyard/releases/download/v1.5.0/install.sh \
   -o install.sh
-bash install.sh --version v1.4.0
+bash install.sh --version v1.5.0
 ```
 
 For a disconnected host, put the matching architecture image archive and
 `SHA256SUMS.txt` next to `install.sh`, then run `bash install.sh --offline`. The
 archive includes MongoDB, backend and nginx; no registry login or pulls are
 required on the offline target. Use `bash install.sh --help` for all options.
+
+## Uninstalling
+
+Use the same `install.sh` you installed with. By default it stops and removes the
+containers but **keeps** `~/.depyard/.env`, the state file and both data volumes,
+so you can reinstall later without losing anything:
+
+```bash
+bash install.sh --uninstall
+```
+
+To delete the configuration and all stored data too:
+
+```bash
+bash install.sh --uninstall --purge
+```
+
+`--purge` asks for confirmation. Add `--yes` for unattended removal:
+
+```bash
+bash install.sh --uninstall --purge --yes
+```
+
+If you installed into a custom directory, pass the same `--install-dir` you used
+for installation. For a manual `docker compose` install (without this script),
+use `docker compose -f docker-compose.release.yml down` and add `--volumes` to
+delete data.
 
 ## Running Pre-Built Release Images (No Build Required)
 

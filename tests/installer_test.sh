@@ -24,7 +24,7 @@ case "$1" in
     shift
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        version|pull|up) exit 0 ;;
+        version|pull|up|down) exit 0 ;;
       esac
       shift
     done
@@ -107,5 +107,33 @@ grep -q '^COMPOSE_PROJECT_NAME=oldproj$' "$legacy/.env"
 [[ "$out" != *'Password:'* ]]
 grep -q '^ADMIN_PASSWORD=$' "$legacy/.env"
 check 'legacy volume adoption'
+
+# Uninstall stops containers but keeps configuration and volumes by default.
+uninstall_dir="$WORK/uninstall"
+run_installer "$uninstall_dir" --version v1.4.0 >/dev/null
+out="$(run_installer "$uninstall_dir" --version v1.4.0 --uninstall)"
+[[ "$out" == *'Configuration and data volumes were kept'* ]]
+[[ -f "$uninstall_dir/.env" ]]
+[[ -f "$uninstall_dir/docker-compose.yml" ]]
+[[ -f "$uninstall_dir/.depyard-state" ]]
+grep -q 'down --remove-orphans' "$DOCKER_LOG"
+check 'uninstall keeps config and volumes'
+
+# Purge removes volumes and configuration without prompting when --yes is given.
+out="$(run_installer "$uninstall_dir" --version v1.4.0 --uninstall --purge --yes)"
+[[ "$out" == *'uninstalled'* ]]
+grep -q 'down --volumes --remove-orphans' "$DOCKER_LOG"
+[[ ! -e "$uninstall_dir/.env" ]]
+[[ ! -e "$uninstall_dir/docker-compose.yml" ]]
+[[ ! -e "$uninstall_dir/.depyard-state" ]]
+check 'purge removes config and volumes'
+
+# --purge without --uninstall is rejected.
+if run_installer "$uninstall_dir" --version v1.4.0 --purge >"$WORK/purge.out" 2>&1; then
+  echo '--purge without --uninstall unexpectedly succeeded' >&2
+  exit 1
+fi
+grep -q -- '--purge only applies with --uninstall' "$WORK/purge.out"
+check 'purge guard'
 
 printf 'Installer smoke tests passed.\n'
