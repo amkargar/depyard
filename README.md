@@ -105,7 +105,7 @@ ADMIN_EMAIL=admin@example.com
 
 When no **active** administrator exists yet, the backend automatically creates this admin account on startup.
 
-If `ADMIN_PASSWORD` is not set, the server generates a strong random password and prints it **once** in the startup log — there is no predictable default credential any more:
+If `ADMIN_PASSWORD` is not set, the server generates a strong random password and prints it **once** in the startup log:
 
 ```
 WARN no ADMIN_PASSWORD configured: a password was generated for the initial admin account
@@ -114,7 +114,7 @@ WARN no ADMIN_PASSWORD configured: a password was generated for the initial admi
 
 Store it, then change it from **My Account → Profile** after signing in. Passwords must be at least 12 characters (`MIN_PASSWORD_LENGTH` can relax the floor for existing deployments).
 
-`ADMIN_PASSWORD` is only read when the account is **created** — changing it later does not reset an existing administrator's password. A value shorter than the minimum makes the server refuse to start rather than come up with a weak credential (the old `admin123` default is rejected outright). See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
+`ADMIN_PASSWORD` is only read when the account is **created** — changing it later does not reset an existing administrator's password. A value shorter than the minimum makes the server refuse to start rather than come up with a weak credential. See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
 
 ### 2. Via the Admin Web UI
 
@@ -195,67 +195,63 @@ first start):
 docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
 ```
 
-## Installing a New Release (Upgrade)
+To move to a newer version later, see [Upgrading to a New Version](#upgrading-to-a-new-version).
+
+## Upgrading to a New Version
 
 Images are published to GHCR as `ghcr.io/<owner>/mirror-registry-backend` and
-`-nginx`, multi-arch (`linux/amd64`, `linux/arm64`), tagged with the release tag
-plus `latest` for stable releases. The release page also attaches the matching
-image archives and a `docker-compose.release.yml` whose default tag is pinned to
-that release.
+`-nginx` for `linux/amd64` and `linux/arm64`, tagged with the release tag and
+`latest`. Each release page also attaches the image archives and a
+`docker-compose.release.yml` whose default tag is pinned to that release.
 
-**Upgrading is swapping images — there is no migration step and no schema
-change to apply.** All state lives in two named volumes, `mongo_data` (users,
-sessions, tokens, registries, metadata) and `registry_blobs` (content-addressed
-artifacts, deduplicated across registries). The containers themselves are
-stateless, so replacing them keeps every account, token and artifact intact.
+Upgrading means pointing the stack at a new image tag and restarting it. There
+is no migration step: all state lives in two named volumes — `mongo_data`
+(users, sessions, tokens, registries, metadata) and `registry_blobs`
+(content-addressed artifacts, deduplicated across registries) — and the
+containers are stateless, so accounts, tokens and artifacts are preserved.
+
+Use the same `HTTP_PORT` (and any `.env` values) as your original install.
 
 ### Online (pull from GHCR)
 
+Replace `vX.Y.Z` with the version you are installing:
+
 ```bash
-# Pick the version: either edit MIRROR_REGISTRY_TAG in the compose file, or
-# override it for this command.
-export MIRROR_REGISTRY_TAG=v1.1.0
+export MIRROR_REGISTRY_TAG=vX.Y.Z
 
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d
 ```
 
-`docker compose up -d` recreates only the containers whose image changed; the
-volumes are untouched. The stack is unavailable only for the few seconds
-between stopping the old container and the new healthcheck passing.
+`up -d` recreates only the containers whose image changed. The stack is
+unavailable only for the few seconds until the new healthcheck passes.
 
-### Offline / air-gapped (load the image archive)
+### Offline / air-gapped
 
 ```bash
-# Intel/AMD — use linux-arm64 on Apple Silicon or ARM servers
-docker load -i mirror-registry-images-v1.1.0-linux-amd64.tar.gz
+# Intel/AMD — use the arm64 archive on Apple Silicon or ARM servers
+docker load -i mirror-registry-images-vX.Y.Z-linux-amd64.tar.gz
 
-export MIRROR_REGISTRY_TAG=v1.1.0
+export MIRROR_REGISTRY_TAG=vX.Y.Z
 docker compose -f docker-compose.release.yml up -d
 ```
 
-The archive contains both images tagged `v1.1.0`, so the tag you export must
-match the archive name.
+The archive contains both images tagged with that version, so the tag you export
+must match the archive name.
 
-### Verifying and rolling back
+### Verify, then roll back if needed
 
 ```bash
-sha256sum -c SHA256SUMS.txt          # verify a downloaded archive
+sha256sum -c SHA256SUMS.txt                              # verify a downloaded archive
 docker compose -f docker-compose.release.yml logs -f backend | head -30
 ```
 
-To roll back, export the previous tag and run `up -d` again — old images stay
-available in GHCR, and the volumes are version-agnostic.
+To roll back, set `MIRROR_REGISTRY_TAG` to the version you came from and run
+`docker compose -f docker-compose.release.yml up -d` again. Published images
+stay available, and the volumes are version-agnostic.
 
-### One thing to check before upgrading a fresh install
-
-If you keep your own copy of `docker-compose.release.yml` from an **older**
-release, it pins `ADMIN_PASSWORD` to a default that the current password policy
-rejects (minimum 12 characters). On an **existing** installation this is
-harmless — the administrator already exists, so bootstrap is skipped and the
-variable is never read. On a **fresh** database it aborts startup with
-`password must be at least 12 characters`. Re-download the compose file from the
-release you are installing, or change that line to `${ADMIN_PASSWORD:-}`.
+Every version upgrades the same way, so this section stays valid as new releases
+ship.
 
 ## Using with Dart & Flutter
 

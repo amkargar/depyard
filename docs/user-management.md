@@ -45,7 +45,7 @@ On first boot the server creates an administrator account. The credentials are:
   ```
 
   Store it and change it after signing in. Setting `ADMIN_PASSWORD` explicitly
-  restores the deterministic behaviour.
+  makes the first-boot password deterministic instead.
 
 The bootstrap administrator is created whenever **no active administrator
 exists**, not merely when the user table is empty. If the only administrator is
@@ -61,9 +61,6 @@ Two behaviours worth knowing before you rely on `ADMIN_PASSWORD`:
 - **It is validated like any other password.** A value shorter than
   `MIN_PASSWORD_LENGTH` makes the server refuse to start with
   `failed to bootstrap admin account: password must be at least 12 characters`.
-  This matters because the pre-1.0 default value (`admin123`) is now rejected
-  outright, so an old deployment that relied on it fails closed rather than
-  coming up with a weak credential.
 
 If the installation has no active administrator **and** the configured
 `ADMIN_USERNAME` already belongs to an account that cannot administer it, the
@@ -198,7 +195,7 @@ A token can never grant more than the user who owns it:
 - A token issued while its owner was an administrator loses its administrative
   reach as soon as the owner is demoted, even though the token itself is still
   valid.
-- A token whose owner account has been deleted no longer authenticates; the
+- A token whose owner account has been deleted does not authenticate; the
   token is revoked automatically the first time it is presented.
 
 ## Administrator token access
@@ -239,8 +236,7 @@ use this route to hand out privileges that the owner does not already hold.
 { "name": "alice-ci", "user_id": "<user id>", "scopes": ["read", "publish"] }
 ```
 
-Omitting `user_id` keeps the previous behaviour: the token belongs to the
-calling administrator.
+Omitting `user_id` issues the token to the calling administrator.
 
 ### Disabling an account
 
