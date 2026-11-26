@@ -81,6 +81,24 @@ func (s *Service) EnsureBootstrapAdmin(ctx context.Context, username, email, pas
 		Password: password,
 		Role:     RoleAdmin,
 	})
+	if errors.Is(err, ErrAlreadyExists) {
+		// The installation has no active administrator, yet the configured
+		// identity is already in use by an account that cannot administer it.
+		// Refusing to start is correct — running without an administrator is
+		// not a usable state — but a bare "already exists" leaves the operator
+		// with no way forward, so say exactly which identity clashes and how to
+		// resolve it.
+		if existing, lookupErr := s.store.GetUserByUsername(ctx, username); lookupErr == nil && existing != nil {
+			return false, fmt.Errorf(
+				"cannot bootstrap administrator: username %q is already used by a non-administrator account "+
+					"(role %q, disabled %t); set ADMIN_USERNAME to a different name and restart, "+
+					"or restore administrator access for that account",
+				username, existing.Role, existing.Disabled)
+		}
+		return false, fmt.Errorf(
+			"cannot bootstrap administrator: email %q is already used by another account; "+
+				"set ADMIN_EMAIL to a different address and restart", email)
+	}
 	if err != nil {
 		return false, err
 	}

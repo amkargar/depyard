@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -663,4 +664,51 @@ func bearerRequest(raw string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 	return req
+}
+
+// TestBootstrapErrorIsActionableWhenUsernameIsTaken covers the recovery path
+// where the installation has no active administrator but the configured
+// administrator username belongs to a non-admin account. The server must
+// refuse to start, but with a message that tells the operator how to recover
+// rather than a bare "already exists".
+func TestBootstrapErrorIsActionableWhenUsernameIsTaken(t *testing.T) {
+	ms := memstore.New()
+	svc := auth.NewService(ms, time.Hour)
+	ctx := context.Background()
+
+	if _, err := svc.CreateUser(ctx, auth.CreateUserInput{
+		Username: "admin",
+		Email:    "squatter@example.com",
+		Password: "squatter-password-1",
+		Role:     auth.RoleUser,
+	}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	created, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", "recovery-password-1")
+	if created {
+		t.Fatal("expected no administrator to be created")
+	}
+	if err == nil {
+		t.Fatal("expected an error when the configured username is taken")
+	}
+	msg := err.Error()
+	for _, want := range []string{"admin", "ADMIN_USERNAME", "non-administrator"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("expected the error to mention %q so the operator can recover, got: %s", want, msg)
+		}
+	}
+
+	// The existing account must be left untouched: bootstrap must never
+	// silently promote an account or reset its password.
+	existing, err := ms.GetUserByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatalf("GetUserByUsername: %v", err)
+	}
+	if existing.Role != auth.RoleUser {
+		t.Errorf("bootstrap must not change the existing account's role, got %q", existing.Role)
+	}
+	if _, _, _, err := svc.Login(ctx, "admin", "squatter-password-1", "test", "127.0.0.1"); err != nil {
+		t.Errorf("the existing account's password must be unchanged: %v", err)
+	}
 }
