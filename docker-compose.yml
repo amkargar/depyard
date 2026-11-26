@@ -37,6 +37,10 @@ services:
       DEFAULT_PYPI_SLUG: python-packages
       DEFAULT_PYPI_MODE: hybrid
       DEFAULT_PYPI_UPSTREAM_URL: https://pypi.org
+      SEED_NPM: "true"
+      DEFAULT_NPM_SLUG: npm-packages
+      DEFAULT_NPM_MODE: hybrid
+      DEFAULT_NPM_UPSTREAM_URL: https://registry.npmjs.org
       # First boot: when ADMIN_PASSWORD is empty the server generates a strong
       # random password and prints it once in the backend log. Set it here (12+
       # characters) or in a .env file to choose your own.

@@ -22,6 +22,7 @@ import (
 	"github.com/amkargar/depyard/backend/internal/registry"
 	"github.com/amkargar/depyard/backend/internal/registry/flutter"
 	"github.com/amkargar/depyard/backend/internal/registry/goproxy"
+	"github.com/amkargar/depyard/backend/internal/registry/npm"
 	"github.com/amkargar/depyard/backend/internal/registry/pub"
 	"github.com/amkargar/depyard/backend/internal/registry/pypi"
 	"github.com/amkargar/depyard/backend/internal/server"
@@ -51,6 +52,7 @@ func main() {
 		flutterStore  flutter.MetadataStore
 		goStore       goproxy.MetadataStore
 		pypiStore     pypi.MetadataStore
+		npmStore      npm.MetadataStore
 		closeStore    func(context.Context) error
 	)
 
@@ -67,6 +69,7 @@ func main() {
 		flutterStore = flutter.NewMemoryStore()
 		goStore = goproxy.NewMemoryStore()
 		pypiStore = pypi.NewMemoryStore()
+		npmStore = npm.NewMemoryStore()
 	} else {
 		mongoDB, err := mongostore.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase)
 		if err != nil {
@@ -108,6 +111,13 @@ func main() {
 			os.Exit(1)
 		}
 		pypiStore = ps2
+
+		ns, err := npm.NewMongoStore(ctx, mongoDB.Database())
+		if err != nil {
+			logger.Error("failed to initialize npm metadata store", "error", err)
+			os.Exit(1)
+		}
+		npmStore = ns
 		logger.Info("connected to MongoDB", "database", cfg.MongoDatabase)
 	}
 	if closeStore != nil {
@@ -187,6 +197,10 @@ func main() {
 	}
 	if err := regManager.RegisterType(pypi.Registration(pypiStore)); err != nil {
 		logger.Error("failed to register pypi registry type", "error", err)
+		os.Exit(1)
+	}
+	if err := regManager.RegisterType(npm.Registration(npmStore)); err != nil {
+		logger.Error("failed to register npm registry type", "error", err)
 		os.Exit(1)
 	}
 
@@ -279,6 +293,34 @@ func main() {
 					logger.Warn("could not seed default pypi instance", "error", pyErr)
 				} else {
 					logger.Info("seeded default pypi instance", "slug", pyInst.Slug, "type", pyInst.Type, "mode", pyInst.Mode)
+				}
+			}
+
+			if cfg.SeedNPM {
+				npmInst, npmErr := regManager.CreateInstance(ctx, &registry.Instance{
+					Name:        cfg.DefaultNPMName,
+					Slug:        cfg.DefaultNPMSlug,
+					Type:        npm.RegistryType,
+					Description: "npm Registry mirror (packuments and tarballs) with npm-compatible publishing.",
+					Enabled:     true,
+					Mode:        registry.RepositoryMode(cfg.DefaultNPMMode),
+					UpstreamURL: cfg.DefaultNPMUpstreamURL,
+					Visibility:  registry.VisibilityPublic,
+					AuthPolicy: registry.AuthPolicy{
+						AllowAnonymousRead: true,
+						RequireAuthPublish: true,
+					},
+					CachePolicy: registry.DefaultCachePolicy(),
+					Config: map[string]any{
+						"upstream_timeout_seconds": 60,
+						"verify_integrity":         true,
+					},
+					IsDefault: true,
+				})
+				if npmErr != nil {
+					logger.Warn("could not seed default npm instance", "error", npmErr)
+				} else {
+					logger.Info("seeded default npm instance", "slug", npmInst.Slug, "type", npmInst.Type, "mode", npmInst.Mode)
 				}
 			}
 

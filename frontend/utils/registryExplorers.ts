@@ -6,6 +6,8 @@ import GoRegistryExplorer from '~/components/explorers/go/GoRegistryExplorer.vue
 import GoModuleDetail from '~/components/explorers/go/GoModuleDetail.vue'
 import PypiRegistryExplorer from '~/components/explorers/pypi/PypiRegistryExplorer.vue'
 import PypiProjectDetail from '~/components/explorers/pypi/PypiProjectDetail.vue'
+import NpmRegistryExplorer from '~/components/explorers/npm/NpmRegistryExplorer.vue'
+import NpmPackageDetail from '~/components/explorers/npm/NpmPackageDetail.vue'
 
 export interface RegistryExplorerMapping {
   label: string
@@ -37,6 +39,11 @@ export const REGISTRY_EXPLORERS: Record<string, RegistryExplorerMapping> = {
     label: 'Python Package Index',
     explorer: PypiRegistryExplorer,
     detail: PypiProjectDetail,
+  },
+  npm: {
+    label: 'npm Registry',
+    explorer: NpmRegistryExplorer,
+    detail: NpmPackageDetail,
   },
 }
 

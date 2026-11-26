@@ -9,6 +9,7 @@ A lightweight, extensible, self-hosted, multi-format package and artifact regist
 Compiled registry modules built on the ecosystem-agnostic core:
 - **Pub (`pub`)** — Official Dart & Flutter Pub v2 registry (Proxy, Hosted, Hybrid).
 - **Flutter Storage (`flutter`)** — Full `FLUTTER_STORAGE_BASE_URL` caching mirror for Flutter SDK releases, engine artifacts, Dart archives, and Gradle Maven storage (`flutter_infra_release/`, `flutter_infra/`, `download.flutter.io/`, `dart-archive/`).
+- **npm (`npm`)** — npm Registry API (packuments, scoped packages, tarballs, `npm publish`/`npm unpublish`) with proxy, hosted, and hybrid modes.
 
 ## Key Features
 
@@ -40,6 +41,12 @@ Compiled registry modules built on the ecosystem-agnostic core:
   - Models a release as many distribution files (one sdist plus any number of platform wheels) across three collections: `pypi_projects`, `pypi_releases` and `pypi_files`.
   - Per-instance policies: allowed / blocked / protected project patterns, distribution size cap, pre-release filtering, and PEP 592 yanking support.
   - Ships a public **Python Package Index** explorer (`/explore/<slug>`) with a package directory, per-release file tables, and copyable `pip install` / `twine upload` snippets. See [docs/pypi-registry.md](docs/pypi-registry.md).
+- **npm Registry (`npm`)**:
+  - Serves full and install-optimized (`application/vnd.npm.install-v1+json`) packuments, scoped packages (`@scope/name`), `dist-tags`, and lazily cached tarballs with rewritten `dist.tarball` URLs.
+  - Supports `npm publish` / `npm unpublish` in hosted and hybrid modes with immutable versions, `shasum`/`integrity` verification, Bearer/Basic token authentication, and namespace-scoped permissions.
+  - Proxies `registry.npmjs.org` (or any compatible upstream) with local metadata caching, on-demand tarball mirroring, same-host URL validation, and per-instance allow / block / protect package patterns.
+  - Strict semver parsing and ordering for latest-version selection; search uses the local index and never fans out to upstream.
+  - Ships a public **npm Registry** explorer (`/explore/<slug>`) with a package directory, version/tarball tables, and copyable `npm install` / `npm publish` snippets. See [docs/npm-registry.md](docs/npm-registry.md).
 - **Multi-Type Root Compatibility & `/r/<slug>` Routing`:
   - Every registry instance operates under its own isolated `/r/<slug>` base path.
   - Optional root-level compatibility routing serves both the default Pub instance (`/api/packages/*`, `/packages/*`) and the default Flutter Storage instance (`/flutter_infra_release/*`, `/flutter_infra/*`, `/download.flutter.io/*`, `/dart-archive/*`) simultaneously.
@@ -65,7 +72,7 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 - Keeps `backend` and `mongodb` isolated on the internal Docker network without exposing host ports.
 
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
-- On first startup with an empty database, both `pub-public` (`PUB_HOSTED_URL`) and `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`) are seeded automatically.
+- On first startup with an empty database, `pub-public` (`PUB_HOSTED_URL`), `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`), `go-proxy`, `python-packages`, and `npm-packages` are seeded automatically.
 
 ### Signing in for the first time
 
@@ -432,6 +439,40 @@ curl -s -H 'Accept: application/vnd.pypi.simple.v1+json' \
 
 See [docs/pypi-registry.md](docs/pypi-registry.md) for configuration, PEP 440 version
 rules, publishing, and the explorer API.
+
+## Using with Node.js
+
+### npm Registry
+
+```bash
+# Multi-registry isolated URL
+npm install --registry http://localhost/r/npm-packages/ lodash
+
+# Scoped packages work the same way
+npm install --registry http://localhost/r/npm-packages/ @acme/tools
+
+# Configure it once (per project or globally)
+npm config set registry http://localhost/r/npm-packages/
+```
+
+Publish a package with an access token that has the `publish` scope:
+
+```bash
+npm config set //localhost/r/npm-packages/:_authToken mr_your_access_token
+npm publish --registry http://localhost/r/npm-packages/
+```
+
+Check the protocol endpoints directly:
+
+```bash
+curl -s http://localhost/r/npm-packages/lodash
+curl -s -H 'Accept: application/vnd.npm.install-v1+json' \
+  http://localhost/r/npm-packages/lodash
+curl -s 'http://localhost/r/npm-packages/-/v1/search?text=acme'
+```
+
+See [docs/npm-registry.md](docs/npm-registry.md) for configuration, scoped-name
+handling, publishing rules, and the explorer API.
 
 ## Local Development
 
