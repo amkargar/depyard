@@ -37,8 +37,12 @@ services:
       DEFAULT_PYPI_SLUG: python-packages
       DEFAULT_PYPI_MODE: hybrid
       DEFAULT_PYPI_UPSTREAM_URL: https://pypi.org
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: changeme123
+      # First boot: when ADMIN_PASSWORD is empty the server generates a strong
+      # random password and prints it once in the backend log. Set it here (12+
+      # characters) or in a .env file to choose your own.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
       - registry_blobs:/data
     expose:
