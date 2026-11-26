@@ -195,6 +195,68 @@ first start):
 docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
 ```
 
+## Installing a New Release (Upgrade)
+
+Images are published to GHCR as `ghcr.io/<owner>/mirror-registry-backend` and
+`-nginx`, multi-arch (`linux/amd64`, `linux/arm64`), tagged with the release tag
+plus `latest` for stable releases. The release page also attaches the matching
+image archives and a `docker-compose.release.yml` whose default tag is pinned to
+that release.
+
+**Upgrading is swapping images — there is no migration step and no schema
+change to apply.** All state lives in two named volumes, `mongo_data` (users,
+sessions, tokens, registries, metadata) and `registry_blobs` (content-addressed
+artifacts, deduplicated across registries). The containers themselves are
+stateless, so replacing them keeps every account, token and artifact intact.
+
+### Online (pull from GHCR)
+
+```bash
+# Pick the version: either edit MIRROR_REGISTRY_TAG in the compose file, or
+# override it for this command.
+export MIRROR_REGISTRY_TAG=v1.1.0
+
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+`docker compose up -d` recreates only the containers whose image changed; the
+volumes are untouched. The stack is unavailable only for the few seconds
+between stopping the old container and the new healthcheck passing.
+
+### Offline / air-gapped (load the image archive)
+
+```bash
+# Intel/AMD — use linux-arm64 on Apple Silicon or ARM servers
+docker load -i mirror-registry-images-v1.1.0-linux-amd64.tar.gz
+
+export MIRROR_REGISTRY_TAG=v1.1.0
+docker compose -f docker-compose.release.yml up -d
+```
+
+The archive contains both images tagged `v1.1.0`, so the tag you export must
+match the archive name.
+
+### Verifying and rolling back
+
+```bash
+sha256sum -c SHA256SUMS.txt          # verify a downloaded archive
+docker compose -f docker-compose.release.yml logs -f backend | head -30
+```
+
+To roll back, export the previous tag and run `up -d` again — old images stay
+available in GHCR, and the volumes are version-agnostic.
+
+### One thing to check before upgrading a fresh install
+
+If you keep your own copy of `docker-compose.release.yml` from an **older**
+release, it pins `ADMIN_PASSWORD` to a default that the current password policy
+rejects (minimum 12 characters). On an **existing** installation this is
+harmless — the administrator already exists, so bootstrap is skipped and the
+variable is never read. On a **fresh** database it aborts startup with
+`password must be at least 12 characters`. Re-download the compose file from the
+release you are installing, or change that line to `${ADMIN_PASSWORD:-}`.
+
 ## Using with Dart & Flutter
 
 ### Pub Packages (`PUB_HOSTED_URL`) + Flutter SDK / Engine Storage (`FLUTTER_STORAGE_BASE_URL`)

@@ -712,3 +712,33 @@ func TestBootstrapErrorIsActionableWhenUsernameIsTaken(t *testing.T) {
 		t.Errorf("the existing account's password must be unchanged: %v", err)
 	}
 }
+
+// TestBootstrapIsSkippedOnUpgradeWithAStalePassword covers the upgrade path.
+//
+// A deployment created from an older Compose file may still carry a weak
+// ADMIN_PASSWORD in its environment. On an existing installation the bootstrap
+// never runs, so that stale value must not be validated and must not stop the
+// server from starting — otherwise every upgrade would fail on a variable that
+// is not even being used.
+func TestBootstrapIsSkippedOnUpgradeWithAStalePassword(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := context.Background()
+
+	if _, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", "the-real-admin-password"); err != nil {
+		t.Fatalf("first boot: %v", err)
+	}
+
+	// The server restarts with a leftover weak value in the environment.
+	created, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", "changeme123")
+	if err != nil {
+		t.Fatalf("a restart must not fail on an unused ADMIN_PASSWORD: %v", err)
+	}
+	if created {
+		t.Fatal("expected no new administrator to be created")
+	}
+
+	// The real password must be untouched.
+	if _, _, _, err := svc.Login(ctx, "admin", "the-real-admin-password", "test", "127.0.0.1"); err != nil {
+		t.Errorf("the existing administrator password must still work: %v", err)
+	}
+}
