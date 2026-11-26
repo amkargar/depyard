@@ -165,11 +165,12 @@ jobs:
             echo "Exporting linux/${ARCH} image archive..."
             docker pull --platform "linux/${ARCH}" "${BACKEND_IMAGE}:${RELEASE_TAG}"
             docker pull --platform "linux/${ARCH}" "${NGINX_IMAGE}:${RELEASE_TAG}"
+            docker pull --platform "linux/${ARCH}" mongo:7
             docker save \
               "${BACKEND_IMAGE}:${RELEASE_TAG}" \
-              "${NGINX_IMAGE}:${RELEASE_TAG}" \
+              "${NGINX_IMAGE}:${RELEASE_TAG}" mongo:7 \
               | gzip -9 > "dist/depyard-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
-            docker rmi -f "${BACKEND_IMAGE}:${RELEASE_TAG}" "${NGINX_IMAGE}:${RELEASE_TAG}"
+            docker rmi -f "${BACKEND_IMAGE}:${RELEASE_TAG}" "${NGINX_IMAGE}:${RELEASE_TAG}" mongo:7
 
             # An empty export still compresses to ~20 bytes, which is how broken
             # arm64 archives shipped unnoticed. Surface it without failing the
@@ -177,7 +178,8 @@ jobs:
             ARCHIVE="dist/depyard-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
             BYTES=$(stat -c%s "${ARCHIVE}" 2>/dev/null || echo 0)
             if [ "${BYTES}" -lt 1000000 ]; then
-              echo "::warning::${ARCHIVE} is only ${BYTES} bytes — the image export for linux/${ARCH} looks empty"
+              echo "::error::${ARCHIVE} is only ${BYTES} bytes — the image export for linux/${ARCH} looks empty"
+              exit 1
             fi
           done
 
@@ -186,12 +188,14 @@ jobs:
             -e "s|MIRROR_REGISTRY_TAG:-latest|MIRROR_REGISTRY_TAG:-${RELEASE_TAG}|g" \
             docker-compose.release.yml > dist/docker-compose.release.yml
 
+          cp install.sh dist/install.sh
+
           (
             cd dist
             sha256sum \
               "depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz" \
               "depyard-images-${RELEASE_TAG}-linux-arm64.tar.gz" \
-              "docker-compose.release.yml" > SHA256SUMS.txt
+              "docker-compose.release.yml" "install.sh" > SHA256SUMS.txt
           )
 
       - name: Generate release notes
@@ -207,7 +211,7 @@ jobs:
           - \`${BACKEND_IMAGE}:${RELEASE_TAG}\`
           - \`${NGINX_IMAGE}:${RELEASE_TAG}\`
 
-          ### Quick Start on Your PC (Pull from GHCR)
+          ### One-command installer\n          Download install.sh and docker-compose.release.yml into the same directory.\n          Run bash install.sh online, or download the matching image archive and SHA256SUMS.txt and run bash install.sh offline.\n          Offline bundles include MongoDB and do not pull images.\n\n          ### Quick Start on Your PC (Pull from GHCR)
           1. Download \`docker-compose.release.yml\` from the **Assets** section below.
           2. Start the stack:
              \`\`\`bash
@@ -228,7 +232,7 @@ jobs:
           2. Load the images into Docker and start:
              \`\`\`bash
              docker load -i depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz
-             HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
+             HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d --pull never
              \`\`\`
 
           Verify downloads with \`sha256sum -c SHA256SUMS.txt\`.

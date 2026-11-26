@@ -170,6 +170,16 @@ curl -sS -X POST http://localhost/api/admin/users \
 
 Existing installations retain the MongoDB database name `mirror_registry`, volume keys and existing authentication identifiers. If you rename the local checkout directory, keep the original Compose project name (for example, `export COMPOSE_PROJECT_NAME=mirror-registry`) to continue using the same volumes. Do not run `docker compose down -v`. Update the stored site title to Depyard in Admin → Settings if it still displays the old name. New GHCR images are published under `ghcr.io/amkargar/depyard-backend` and `ghcr.io/amkargar/depyard-nginx` after a new release; older images remain under the old prefix. The existing `MIRROR_REGISTRY_TAG` environment variable is retained for compatibility.
 
+## One-command installation (Docker only)
+
+Download `install.sh` and `docker-compose.release.yml` from the same release into a dedicated directory. On Linux, macOS or Windows WSL, run:
+
+```bash
+bash install.sh
+```
+
+For a disconnected host, also download the matching architecture image archive and `SHA256SUMS.txt`, then run `bash install.sh offline`. The complete archive includes MongoDB, backend and nginx. No registry login or pulls are required on the offline target. Online installation requires access to the GHCR packages; public packages allow anonymous pulls. Private release assets still require authorized download. Use the same installation directory or Compose project name when upgrading existing deployments.
+
 ## Running Pre-Built Release Images (No Build Required)
 
 Tagging a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or running the **Release Container Images** workflow manually in GitHub Actions automatically:
