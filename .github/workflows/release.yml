@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify Backend & Frontend
+    name: Verify Backend, Frontend & Installer
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,6 +47,18 @@ jobs:
         run: |
           npm ci
           npm run typecheck
+
+      - name: Verify installer
+        run: |
+          bash -n install.sh
+          bash tests/installer_test.sh
+
+          # Verify the release-stamped variant that users actually download.
+          sed -e 's|^INSTALLER_VERSION=.*|INSTALLER_VERSION="v1.4.0"|' \
+              -e 's|^INSTALLER_IMAGE_PREFIX=.*|INSTALLER_IMAGE_PREFIX="ghcr.io/amkargar/depyard"|' \
+              install.sh > /tmp/stamped-install.sh
+          bash -n /tmp/stamped-install.sh
+          INSTALL_SCRIPT=/tmp/stamped-install.sh bash tests/installer_test.sh
 
   release:
     name: Build, Push GHCR & Publish GitHub Release
@@ -190,7 +202,13 @@ jobs:
             -e "s|MIRROR_REGISTRY_TAG:-latest|MIRROR_REGISTRY_TAG:-${RELEASE_TAG}|g" \
             docker-compose.release.yml > dist/docker-compose.release.yml
 
-          cp install.sh dist/install.sh
+          # The release asset is self-contained: stamp the version and image
+          # prefix into the installer so users only download install.sh.
+          sed \
+            -e "s|^INSTALLER_VERSION=.*|INSTALLER_VERSION=\"${RELEASE_TAG}\"|" \
+            -e "s|^INSTALLER_IMAGE_PREFIX=.*|INSTALLER_IMAGE_PREFIX=\"${IMAGE_PREFIX}\"|" \
+            install.sh > dist/install.sh
+          chmod +x dist/install.sh
 
           (
             cd dist
@@ -213,31 +231,39 @@ jobs:
           - \`${BACKEND_IMAGE}:${RELEASE_TAG}\`
           - \`${NGINX_IMAGE}:${RELEASE_TAG}\`
 
-          ### One-command installer\n          Download install.sh and docker-compose.release.yml into the same directory.\n          Run bash install.sh online, or download the matching image archive and SHA256SUMS.txt and run bash install.sh offline.\n          Offline bundles include MongoDB and do not pull images.\n\n          ### Quick Start on Your PC (Pull from GHCR)
-          1. Download \`docker-compose.release.yml\` from the **Assets** section below.
-          2. Start the stack:
-             \`\`\`bash
-             HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
-             \`\`\`
-          3. Read the generated administrator password once from the log:
-             \`\`\`bash
-             docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
-             \`\`\`
-             To choose your own instead, set it before starting (12+ characters):
-             e.g. ADMIN_PASSWORD='your-strong-password' HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
-          4. Open http://localhost:8080 and sign in as admin.
+          ### One-command installer (recommended)
+          Download only \`install.sh\` and run it. The script contains the pinned Compose definition, writes a managed \`.env\`, and shows the generated administrator password once on a fresh install:
 
-          ### Quick Start Using the Release Image Archive (Offline / No GHCR Login)
-          1. Download \`docker-compose.release.yml\` and the image archive matching your PC from **Assets**:
-             - Intel/AMD (Windows, Linux, Intel Mac): \`depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz\`
-             - Apple Silicon (M1–M4 Mac) / ARM64 Linux: \`depyard-images-${RELEASE_TAG}-linux-arm64.tar.gz\`
-          2. Load the images into Docker and start:
-             \`\`\`bash
-             docker load -i depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz
-             HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d --pull never
-             \`\`\`
+          \`\`\`bash
+          curl -fsSL https://github.com/amkargar/depyard/releases/latest/download/install.sh -o install.sh
+          bash install.sh
+          \`\`\`
 
-          Verify downloads with \`sha256sum -c SHA256SUMS.txt\`.
+          To pin this exact release instead of latest:
+
+          \`\`\`bash
+          curl -fsSL https://github.com/amkargar/depyard/releases/download/${RELEASE_TAG}/install.sh -o install.sh
+          bash install.sh --version ${RELEASE_TAG}
+          \`\`\`
+
+          For an air-gapped host, also download the matching image archive and \`SHA256SUMS.txt\` next to \`install.sh\`, then run \`bash install.sh --offline\` (the stamped script already knows the version).
+
+          ### Manual Compose (optional)
+          The release still includes \`docker-compose.release.yml\` for operators who prefer to run Compose directly:
+
+          \`\`\`bash
+          HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
+          \`\`\`
+
+          With manual Compose, the generated administrator password is printed once in the backend log:
+
+          \`\`\`bash
+          docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
+          \`\`\`
+
+          Or set \`ADMIN_PASSWORD\` (12+ characters) before the first start. Open http://localhost:8080 and sign in as \`admin\`.
+
+          Verify downloaded assets with \`sha256sum -c SHA256SUMS.txt\`.
           EOF
 
       - name: Publish GitHub Release

@@ -78,7 +78,12 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 
 There is no default password. On the very first start the backend creates the
 administrator account and either uses `ADMIN_PASSWORD` if you set it, or
-generates a random one and prints it **once** in the log:
+generates a random one and prints it **once** in the log.
+
+The [one-command installer](#one-command-installation-docker-only) handles this
+for you: it generates the password, stores it in `~/.depyard/.env` with mode
+`600`, and prints it once in a clean summary after startup. Re-running the
+installer never prints it again.
 
 ```bash
 # 1. Start the stack
@@ -179,20 +184,46 @@ Existing installations retain the MongoDB database name `mirror_registry`, volum
 
 ## One-command installation (Docker only)
 
-Download `install.sh` and `docker-compose.release.yml` from the same release into a dedicated directory. On Linux, macOS or Windows WSL, run:
+`install.sh` is self-contained: it embeds the pinned Compose definition, so it is
+the **only** file you need to download. On Linux, macOS or Windows WSL:
 
 ```bash
+curl -fsSL \
+  https://github.com/amkargar/depyard/releases/latest/download/install.sh \
+  -o install.sh
 bash install.sh
 ```
 
-For a disconnected host, also download the matching architecture image archive and `SHA256SUMS.txt`, then run `bash install.sh offline`. The complete archive includes MongoDB, backend and nginx. No registry login or pulls are required on the offline target. Online installation requires access to the GHCR packages; public packages allow anonymous pulls. Private release assets still require authorized download. Use the same installation directory or Compose project name when upgrading existing deployments.
+The installer:
+
+- creates `~/.depyard/` (override with `DEPWARD_INSTALL_DIR`),
+- writes a managed `docker-compose.yml` and a `chmod 600` `.env`,
+- fixes the Compose project name to `depyard` so renaming a directory does not orphan volumes,
+- generates the initial admin password on a fresh install and prints it once,
+- is safe to re-run for upgrades; `.env` and volumes are never reset.
+
+To pin a specific version, download that release's script and pass the same tag:
+
+```bash
+curl -fsSL \
+  https://github.com/amkargar/depyard/releases/download/v1.4.0/install.sh \
+  -o install.sh
+bash install.sh --version v1.4.0
+```
+
+For a disconnected host, put the matching architecture image archive and
+`SHA256SUMS.txt` next to `install.sh`, then run `bash install.sh --offline`. The
+archive includes MongoDB, backend and nginx; no registry login or pulls are
+required on the offline target. Use `bash install.sh --help` for all options.
 
 ## Running Pre-Built Release Images (No Build Required)
 
 Tagging a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or running the **Release Container Images** workflow manually in GitHub Actions automatically:
 1. Verifies Go tests and frontend typecheck.
 2. Builds and pushes multi-arch (`linux/amd64`, `linux/arm64`) images to GHCR (`ghcr.io/amkargar/depyard-backend` and `ghcr.io/amkargar/depyard-nginx`).
-3. Publishes a GitHub Release with downloadable `.tar.gz` image archives (`linux-amd64` and `linux-arm64`), a pinned `docker-compose.release.yml`, and `SHA256SUMS.txt`.
+3. Publishes a GitHub Release with a self-contained, version-stamped `install.sh`, downloadable `.tar.gz` image archives (`linux-amd64` and `linux-arm64`), a pinned `docker-compose.release.yml` for manual use, and `SHA256SUMS.txt`.
+
+Prefer the [one-command installer](#one-command-installation-docker-only) unless you need to customise the Compose file yourself.
 
 ### Option A: Pull directly from GHCR
 
@@ -212,9 +243,9 @@ docker load -i depyard-images-v1.0.0-linux-amd64.tar.gz
 HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
 ```
 
-Then open `http://localhost:8080` and sign in as `admin`. Read the generated
-password once from the log (or set `ADMIN_PASSWORD` to 12+ characters before the
-first start):
+Then open `http://localhost:8080` and sign in as `admin`. With manual Compose,
+read the generated password once from the log (or set `ADMIN_PASSWORD` to 12+
+characters before the first start):
 
 ```bash
 docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
@@ -236,6 +267,17 @@ is no migration step: all state lives in two named volumes — `mongo_data`
 containers are stateless, so accounts, tokens and artifacts are preserved.
 
 Use the same `HTTP_PORT` (and any `.env` values) as your original install.
+
+With the one-command installer, download the new release's `install.sh` and run
+it again. It regenerates the managed Compose file and restarts the stack while
+preserving `.env`, the admin password and both volumes:
+
+```bash
+curl -fsSL \
+  https://github.com/amkargar/depyard/releases/latest/download/install.sh \
+  -o install.sh
+bash install.sh
+```
 
 ### Online (pull from GHCR)
 
