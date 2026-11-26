@@ -72,7 +72,7 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 - Keeps `backend` and `mongodb` isolated on the internal Docker network without exposing host ports.
 
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
-- On first startup with an empty database, `pub-public` (`PUB_HOSTED_URL`), `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`), `go-proxy`, `python-packages`, and `npm-packages` are seeded automatically.
+- On first startup with an empty database, `pub-public` (`PUB_HOSTED_URL`), `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`), `go-proxy`, `python-packages`, and `npm-packages` are added automatically **but disabled**. Open **Admin → Registries** and enable the ones you want to serve; existing installations are never changed by seeding.
 
 ### Signing in for the first time
 

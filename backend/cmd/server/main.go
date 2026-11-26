@@ -210,155 +210,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Backward compatibility: seed default Pub and Flutter Storage instances on initial empty install
-	if cfg.SeedDefaultRegistry {
-		instances, err := regManager.ListInstances(ctx)
-		if err == nil && len(instances) == 0 {
-			defInst, createErr := regManager.CreateInstance(ctx, &registry.Instance{
-				Name:        cfg.DefaultRegistryName,
-				Slug:        cfg.DefaultRegistrySlug,
-				Type:        cfg.DefaultRegistryType,
-				Description: "Default Dart & Flutter Pub mirror with hybrid local publishing and namespace protection.",
-				Enabled:     true,
-				Mode:        registry.RepositoryMode(cfg.DefaultRegistryMode),
-				UpstreamURL: cfg.DefaultUpstreamURL,
-				Visibility:  registry.VisibilityPublic,
-				AuthPolicy: registry.AuthPolicy{
-					AllowAnonymousRead: true,
-					RequireAuthPublish: true,
-				},
-				CachePolicy: registry.DefaultCachePolicy(),
-				Config: map[string]any{
-					"upstream_timeout_seconds": 30,
-					"allow_retract":            true,
-				},
-				IsDefault: true,
-			})
-			if createErr != nil {
-				logger.Warn("could not seed default registry instance", "error", createErr)
-			} else {
-				logger.Info("seeded default registry instance", "slug", defInst.Slug, "type", defInst.Type, "mode", defInst.Mode)
-			}
-
-			if cfg.SeedGoProxy {
-				goInst, goErr := regManager.CreateInstance(ctx, &registry.Instance{
-					Name:        cfg.DefaultGoName,
-					Slug:        cfg.DefaultGoSlug,
-					Type:        goproxy.RegistryType,
-					Description: "Go module proxy (GOPROXY protocol) mirroring proxy.golang.org.",
-					Enabled:     true,
-					Mode:        registry.ModeProxy,
-					UpstreamURL: cfg.DefaultGoUpstreamURL,
-					Visibility:  registry.VisibilityPublic,
-					AuthPolicy: registry.AuthPolicy{
-						AllowAnonymousRead: true,
-						RequireAuthPublish: true,
-					},
-					CachePolicy: registry.DefaultCachePolicy(),
-					Config: map[string]any{
-						"upstream_timeout_seconds": 60,
-						"include_prerelease":       true,
-					},
-					IsDefault: true,
-				})
-				if goErr != nil {
-					logger.Warn("could not seed default go proxy instance", "error", goErr)
-				} else {
-					logger.Info("seeded default go proxy instance", "slug", goInst.Slug, "type", goInst.Type, "mode", goInst.Mode)
-				}
-			}
-
-			if cfg.SeedPyPI {
-				pyInst, pyErr := regManager.CreateInstance(ctx, &registry.Instance{
-					Name:        cfg.DefaultPyPIName,
-					Slug:        cfg.DefaultPyPISlug,
-					Type:        pypi.RegistryType,
-					Description: "Python Package Index mirror (PEP 503 Simple Repository API) with Twine-compatible publishing.",
-					Enabled:     true,
-					Mode:        registry.RepositoryMode(cfg.DefaultPyPIMode),
-					UpstreamURL: cfg.DefaultPyPIUpstreamURL,
-					Visibility:  registry.VisibilityPublic,
-					AuthPolicy: registry.AuthPolicy{
-						AllowAnonymousRead: true,
-						RequireAuthPublish: true,
-					},
-					CachePolicy: registry.DefaultCachePolicy(),
-					Config: map[string]any{
-						"upstream_timeout_seconds": 60,
-						"include_prerelease":       false,
-					},
-					IsDefault: true,
-				})
-				if pyErr != nil {
-					logger.Warn("could not seed default pypi instance", "error", pyErr)
-				} else {
-					logger.Info("seeded default pypi instance", "slug", pyInst.Slug, "type", pyInst.Type, "mode", pyInst.Mode)
-				}
-			}
-
-			if cfg.SeedNPM {
-				npmInst, npmErr := regManager.CreateInstance(ctx, &registry.Instance{
-					Name:        cfg.DefaultNPMName,
-					Slug:        cfg.DefaultNPMSlug,
-					Type:        npm.RegistryType,
-					Description: "npm Registry mirror (packuments and tarballs) with npm-compatible publishing.",
-					Enabled:     true,
-					Mode:        registry.RepositoryMode(cfg.DefaultNPMMode),
-					UpstreamURL: cfg.DefaultNPMUpstreamURL,
-					Visibility:  registry.VisibilityPublic,
-					AuthPolicy: registry.AuthPolicy{
-						AllowAnonymousRead: true,
-						RequireAuthPublish: true,
-					},
-					CachePolicy: registry.DefaultCachePolicy(),
-					Config: map[string]any{
-						"upstream_timeout_seconds": 60,
-						"verify_integrity":         true,
-					},
-					IsDefault: true,
-				})
-				if npmErr != nil {
-					logger.Warn("could not seed default npm instance", "error", npmErr)
-				} else {
-					logger.Info("seeded default npm instance", "slug", npmInst.Slug, "type", npmInst.Type, "mode", npmInst.Mode)
-				}
-			}
-
-			if cfg.SeedFlutterStorage {
-				flInst, flErr := regManager.CreateInstance(ctx, &registry.Instance{
-					Name:        cfg.DefaultFlutterName,
-					Slug:        cfg.DefaultFlutterSlug,
-					Type:        flutter.RegistryType,
-					Description: "Mirror for Flutter SDK releases, engine artifacts, and Gradle Maven storage (FLUTTER_STORAGE_BASE_URL).",
-					Enabled:     true,
-					Mode:        registry.ModeProxy,
-					UpstreamURL: cfg.DefaultFlutterUpstreamURL,
-					Visibility:  registry.VisibilityPublic,
-					AuthPolicy: registry.AuthPolicy{
-						AllowAnonymousRead: true,
-						RequireAuthPublish: true,
-					},
-					CachePolicy: registry.DefaultCachePolicy(),
-					Config: map[string]any{
-						"storage_name":             cfg.DefaultFlutterName,
-						"allowed_prefixes":         flutter.DefaultAllowedPrefixes,
-						"download_storage":         flutter.DefaultDownloadStorage(),
-						"manifest_ttl_seconds":     300,
-						"registry_ttl_seconds":     900,
-						"rewrite_manifest_urls":    true,
-						"serve_stale_on_error":     true,
-						"upstream_timeout_seconds": 300,
-					},
-					IsDefault: true,
-				})
-				if flErr != nil {
-					logger.Warn("could not seed default flutter storage instance", "error", flErr)
-				} else {
-					logger.Info("seeded default flutter storage instance", "slug", flInst.Slug, "type", flInst.Type, "mode", flInst.Mode)
-				}
-			}
-		}
-	}
+	// Seed the default registry catalogue on a clean install. Instances are created
+	// disabled so an administrator can review them before they accept traffic.
+	seedDefaultInstances(ctx, logger, cfg, regManager)
 
 	// Optional opt-in demo data seeding for local UI preview (never runs by default)
 	if cfg.SeedDemoPackages {
@@ -446,6 +300,165 @@ func main() {
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server error", "error", err)
 		os.Exit(1)
+	}
+}
+
+// seedDefaultInstances adds one instance per installed ecosystem on the first
+// install only. Every seeded instance is disabled until explicitly enabled in
+// the admin console; existing installations are never modified.
+func seedDefaultInstances(ctx context.Context, logger *slog.Logger, cfg config.Config, mgr *registry.Manager) {
+	if !cfg.SeedDefaultRegistry {
+		return
+	}
+	instances, err := mgr.ListInstances(ctx)
+	if err != nil || len(instances) != 0 {
+		return
+	}
+
+	const defaultSeedEnabled = false
+
+	defInst, createErr := mgr.CreateInstance(ctx, &registry.Instance{
+		Name:        cfg.DefaultRegistryName,
+		Slug:        cfg.DefaultRegistrySlug,
+		Type:        cfg.DefaultRegistryType,
+		Description: "Default Dart & Flutter Pub mirror with hybrid local publishing and namespace protection.",
+		Enabled:     defaultSeedEnabled,
+		Mode:        registry.RepositoryMode(cfg.DefaultRegistryMode),
+		UpstreamURL: cfg.DefaultUpstreamURL,
+		Visibility:  registry.VisibilityPublic,
+		AuthPolicy: registry.AuthPolicy{
+			AllowAnonymousRead: true,
+			RequireAuthPublish: true,
+		},
+		CachePolicy: registry.DefaultCachePolicy(),
+		Config: map[string]any{
+			"upstream_timeout_seconds": 30,
+			"allow_retract":            true,
+		},
+		IsDefault: true,
+	})
+	if createErr != nil {
+		logger.Warn("could not seed default registry instance", "error", createErr)
+	} else {
+		logger.Info("seeded default registry instance", "slug", defInst.Slug, "type", defInst.Type, "mode", defInst.Mode)
+	}
+
+	if cfg.SeedGoProxy {
+		goInst, goErr := mgr.CreateInstance(ctx, &registry.Instance{
+			Name:        cfg.DefaultGoName,
+			Slug:        cfg.DefaultGoSlug,
+			Type:        goproxy.RegistryType,
+			Description: "Go module proxy (GOPROXY protocol) mirroring proxy.golang.org.",
+			Enabled:     defaultSeedEnabled,
+			Mode:        registry.ModeProxy,
+			UpstreamURL: cfg.DefaultGoUpstreamURL,
+			Visibility:  registry.VisibilityPublic,
+			AuthPolicy: registry.AuthPolicy{
+				AllowAnonymousRead: true,
+				RequireAuthPublish: true,
+			},
+			CachePolicy: registry.DefaultCachePolicy(),
+			Config: map[string]any{
+				"upstream_timeout_seconds": 60,
+				"include_prerelease":       true,
+			},
+			IsDefault: true,
+		})
+		if goErr != nil {
+			logger.Warn("could not seed default go proxy instance", "error", goErr)
+		} else {
+			logger.Info("seeded default go proxy instance", "slug", goInst.Slug, "type", goInst.Type, "mode", goInst.Mode)
+		}
+	}
+
+	if cfg.SeedPyPI {
+		pyInst, pyErr := mgr.CreateInstance(ctx, &registry.Instance{
+			Name:        cfg.DefaultPyPIName,
+			Slug:        cfg.DefaultPyPISlug,
+			Type:        pypi.RegistryType,
+			Description: "Python Package Index mirror (PEP 503 Simple Repository API) with Twine-compatible publishing.",
+			Enabled:     defaultSeedEnabled,
+			Mode:        registry.RepositoryMode(cfg.DefaultPyPIMode),
+			UpstreamURL: cfg.DefaultPyPIUpstreamURL,
+			Visibility:  registry.VisibilityPublic,
+			AuthPolicy: registry.AuthPolicy{
+				AllowAnonymousRead: true,
+				RequireAuthPublish: true,
+			},
+			CachePolicy: registry.DefaultCachePolicy(),
+			Config: map[string]any{
+				"upstream_timeout_seconds": 60,
+				"include_prerelease":       false,
+			},
+			IsDefault: true,
+		})
+		if pyErr != nil {
+			logger.Warn("could not seed default pypi instance", "error", pyErr)
+		} else {
+			logger.Info("seeded default pypi instance", "slug", pyInst.Slug, "type", pyInst.Type, "mode", pyInst.Mode)
+		}
+	}
+
+	if cfg.SeedNPM {
+		npmInst, npmErr := mgr.CreateInstance(ctx, &registry.Instance{
+			Name:        cfg.DefaultNPMName,
+			Slug:        cfg.DefaultNPMSlug,
+			Type:        npm.RegistryType,
+			Description: "npm Registry mirror (packuments and tarballs) with npm-compatible publishing.",
+			Enabled:     defaultSeedEnabled,
+			Mode:        registry.RepositoryMode(cfg.DefaultNPMMode),
+			UpstreamURL: cfg.DefaultNPMUpstreamURL,
+			Visibility:  registry.VisibilityPublic,
+			AuthPolicy: registry.AuthPolicy{
+				AllowAnonymousRead: true,
+				RequireAuthPublish: true,
+			},
+			CachePolicy: registry.DefaultCachePolicy(),
+			Config: map[string]any{
+				"upstream_timeout_seconds": 60,
+				"verify_integrity":         true,
+			},
+			IsDefault: true,
+		})
+		if npmErr != nil {
+			logger.Warn("could not seed default npm instance", "error", npmErr)
+		} else {
+			logger.Info("seeded default npm instance", "slug", npmInst.Slug, "type", npmInst.Type, "mode", npmInst.Mode)
+		}
+	}
+
+	if cfg.SeedFlutterStorage {
+		flInst, flErr := mgr.CreateInstance(ctx, &registry.Instance{
+			Name:        cfg.DefaultFlutterName,
+			Slug:        cfg.DefaultFlutterSlug,
+			Type:        flutter.RegistryType,
+			Description: "Mirror for Flutter SDK releases, engine artifacts, and Gradle Maven storage (FLUTTER_STORAGE_BASE_URL).",
+			Enabled:     defaultSeedEnabled,
+			Mode:        registry.ModeProxy,
+			UpstreamURL: cfg.DefaultFlutterUpstreamURL,
+			Visibility:  registry.VisibilityPublic,
+			AuthPolicy: registry.AuthPolicy{
+				AllowAnonymousRead: true,
+				RequireAuthPublish: true,
+			},
+			CachePolicy: registry.DefaultCachePolicy(),
+			Config: map[string]any{
+				"storage_name":             cfg.DefaultFlutterName,
+				"allowed_prefixes":         flutter.DefaultAllowedPrefixes,
+				"download_storage":         flutter.DefaultDownloadStorage(),
+				"manifest_ttl_seconds":     300,
+				"registry_ttl_seconds":     900,
+				"rewrite_manifest_urls":    true,
+				"serve_stale_on_error":     true,
+				"upstream_timeout_seconds": 300,
+			},
+			IsDefault: true,
+		})
+		if flErr != nil {
+			logger.Warn("could not seed default flutter storage instance", "error", flErr)
+		} else {
+			logger.Info("seeded default flutter storage instance", "slug", flInst.Slug, "type", flInst.Type, "mode", flInst.Mode)
+		}
 	}
 }
 
