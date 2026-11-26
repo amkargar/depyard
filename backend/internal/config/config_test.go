@@ -30,6 +30,22 @@ func TestAdminPasswordIsReadFromTheEnvironment(t *testing.T) {
 	}
 }
 
+func TestNpmSeedingIsConfigurable(t *testing.T) {
+	t.Setenv("SEED_NPM", "")
+	t.Setenv("DEFAULT_NPM_UPSTREAM_URL", "")
+	cfg := config.Load()
+	if !cfg.SeedNPM || cfg.DefaultNPMSlug != "npm-packages" || cfg.DefaultNPMUpstreamURL != "https://registry.npmjs.org" {
+		t.Fatalf("unexpected npm defaults: %+v", cfg)
+	}
+
+	t.Setenv("SEED_NPM", "false")
+	t.Setenv("DEFAULT_NPM_SLUG", "internal-npm")
+	cfg = config.Load()
+	if cfg.SeedNPM || cfg.DefaultNPMSlug != "internal-npm" {
+		t.Fatalf("npm seed settings were not read from the environment: %+v", cfg)
+	}
+}
+
 func TestMinPasswordLengthDefaultsToTwelveAndIsConfigurable(t *testing.T) {
 	t.Setenv("MIN_PASSWORD_LENGTH", "")
 

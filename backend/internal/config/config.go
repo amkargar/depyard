@@ -38,6 +38,11 @@ type Config struct {
 	DefaultPyPIName           string
 	DefaultPyPIUpstreamURL    string
 	DefaultPyPIMode           string
+	SeedNPM                   bool
+	DefaultNPMSlug            string
+	DefaultNPMName            string
+	DefaultNPMUpstreamURL     string
+	DefaultNPMMode            string
 	UpstreamProxyURL          string
 	AdminUsername             string
 	AdminPassword             string
@@ -81,6 +86,11 @@ func Load() Config {
 		DefaultPyPIName:           getEnv("DEFAULT_PYPI_NAME", "Python Package Index"),
 		DefaultPyPIUpstreamURL:    getEnv("DEFAULT_PYPI_UPSTREAM_URL", "https://pypi.org"),
 		DefaultPyPIMode:           getEnv("DEFAULT_PYPI_MODE", "hybrid"),
+		SeedNPM:                   getEnvBool("SEED_NPM", true),
+		DefaultNPMSlug:            getEnv("DEFAULT_NPM_SLUG", "npm-packages"),
+		DefaultNPMName:            getEnv("DEFAULT_NPM_NAME", "npm Registry"),
+		DefaultNPMUpstreamURL:     getEnv("DEFAULT_NPM_UPSTREAM_URL", "https://registry.npmjs.org"),
+		DefaultNPMMode:            getEnv("DEFAULT_NPM_MODE", "hybrid"),
 		UpstreamProxyURL:          getEnv("UPSTREAM_PROXY_URL", ""),
 		AdminUsername:             getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:             strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")),
