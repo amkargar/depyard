@@ -4,6 +4,8 @@ import PubPackageDetail from '~/components/explorers/pub/PubPackageDetail.vue'
 import FlutterStorageExplorer from '~/components/explorers/flutter/FlutterStorageExplorer.vue'
 import GoRegistryExplorer from '~/components/explorers/go/GoRegistryExplorer.vue'
 import GoModuleDetail from '~/components/explorers/go/GoModuleDetail.vue'
+import PypiRegistryExplorer from '~/components/explorers/pypi/PypiRegistryExplorer.vue'
+import PypiProjectDetail from '~/components/explorers/pypi/PypiProjectDetail.vue'
 
 export interface RegistryExplorerMapping {
   label: string
@@ -30,6 +32,11 @@ export const REGISTRY_EXPLORERS: Record<string, RegistryExplorerMapping> = {
     label: 'Go Module Proxy',
     explorer: GoRegistryExplorer,
     detail: GoModuleDetail,
+  },
+  pypi: {
+    label: 'Python Package Index',
+    explorer: PypiRegistryExplorer,
+    detail: PypiProjectDetail,
   },
 }
 

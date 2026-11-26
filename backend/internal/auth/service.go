@@ -283,8 +283,8 @@ func (s *Service) DeleteToken(ctx context.Context, id string) error {
 // If no credentials are present, it returns an anonymous Principal with nil error.
 // If credentials ARE present but invalid/expired/revoked, it returns an error so callers can return 401.
 func (s *Service) AuthenticateRequest(ctx context.Context, r *http.Request) (*Principal, error) {
-	rawBearer := extractBearer(r)
-	if rawBearer != "" {
+	_, rawBearer, hasCreds := extractCredentials(r)
+	if hasCreds {
 		if strings.HasPrefix(rawBearer, "mrs_") {
 			return s.authenticateSessionToken(ctx, rawBearer)
 		}
@@ -450,16 +450,66 @@ func matchesAnyNamespace(patterns []string, target string) bool {
 	return false
 }
 
+// extractBearer returns the bearer token from an Authorization header, if present.
 func extractBearer(r *http.Request) string {
-	h := strings.TrimSpace(r.Header.Get("Authorization"))
-	if h == "" {
+	_, token, ok := extractCredentials(r)
+	if !ok {
 		return ""
 	}
-	parts := strings.SplitN(h, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-		return strings.TrimSpace(parts[1])
+	return token
+}
+
+// extractCredentials resolves the caller's credentials from the request.
+//
+// Two schemes are supported:
+//
+//   - "Bearer <token>" — the platform's native scheme.
+//   - "Basic <base64(user:pass)>" — the scheme used by Python tooling. pip and twine
+//     authenticate with HTTP Basic, where the username is conventionally "__token__"
+//     and the password carries the actual API token, so the password is treated as the
+//     bearer token. The username is informational and returned for callers that need it.
+//
+// Returning ok=false means "no credentials were supplied"; the caller then treats the
+// request as anonymous. Malformed credentials are reported as an authentication error by
+// the caller, never silently downgraded to anonymous.
+func extractCredentials(r *http.Request) (username, token string, ok bool) {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if h == "" {
+		return "", "", false
 	}
-	return ""
+	parts := strings.SplitN(h, " ", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	scheme := strings.TrimSpace(parts[0])
+	credential := strings.TrimSpace(parts[1])
+
+	switch {
+	case strings.EqualFold(scheme, "Bearer"):
+		if credential == "" {
+			return "", "", false
+		}
+		return "", credential, true
+	case strings.EqualFold(scheme, "Basic"):
+		decoded, err := base64.StdEncoding.DecodeString(credential)
+		if err != nil {
+			// Tolerate unpadded base64, which some clients emit.
+			decoded, err = base64.RawStdEncoding.DecodeString(credential)
+			if err != nil {
+				return "", "", false
+			}
+		}
+		user, pass, found := strings.Cut(string(decoded), ":")
+		if !found {
+			return "", "", false
+		}
+		if pass == "" {
+			return "", "", false
+		}
+		return strings.TrimSpace(user), pass, true
+	default:
+		return "", "", false
+	}
 }
 
 func hashSecret(raw string) string {
