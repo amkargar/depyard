@@ -68,8 +68,8 @@ func newBaseSettingsHarness(t *testing.T, upstreamFor func(host string) string) 
 	metricsCol := metrics.NewCollector(ms)
 	auditSvc := audit.NewService(ms)
 
-	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "adminpass")
-	_, adminToken, _, err := authSvc.Login(ctx, "admin", "adminpass", "test", "127.0.0.1")
+	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "admin-password-1234")
+	_, adminToken, _, err := authSvc.Login(ctx, "admin", "admin-password-1234", "test", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("admin login: %v", err)
 	}

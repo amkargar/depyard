@@ -18,10 +18,17 @@ import (
 
 const SessionCookieName = "mr_session"
 
+// DefaultMinPasswordLength is the minimum length of a user password.
+//
+// The platform used to accept six characters, which is far too weak for an
+// account that can administer a package registry, so the floor is now twelve.
+const DefaultMinPasswordLength = 12
+
 // Service handles centralized authentication and registry-scoped authorization.
 type Service struct {
-	store      Store
-	sessionTTL time.Duration
+	store          Store
+	sessionTTL     time.Duration
+	minPasswordLen int
 }
 
 func NewService(store Store, sessionTTL time.Duration) *Service {
@@ -29,18 +36,43 @@ func NewService(store Store, sessionTTL time.Duration) *Service {
 		sessionTTL = 24 * time.Hour
 	}
 	return &Service{
-		store:      store,
-		sessionTTL: sessionTTL,
+		store:          store,
+		sessionTTL:     sessionTTL,
+		minPasswordLen: DefaultMinPasswordLength,
 	}
 }
 
-// EnsureBootstrapAdmin creates an initial admin user if no users exist yet.
+// SetMinPasswordLength overrides the minimum accepted password length.
+//
+// It exists so an operator with an existing corpus of short passwords can relax
+// the policy deliberately. A value below 1 is ignored.
+func (s *Service) SetMinPasswordLength(n int) {
+	if n < 1 {
+		return
+	}
+	s.minPasswordLen = n
+}
+
+// MinPasswordLength returns the minimum accepted password length.
+func (s *Service) MinPasswordLength() int {
+	if s.minPasswordLen < 1 {
+		return DefaultMinPasswordLength
+	}
+	return s.minPasswordLen
+}
+
+// EnsureBootstrapAdmin creates an initial admin user when the installation has
+// no usable administrator.
+//
+// The check is deliberately "does an active admin exist" rather than "does any
+// user exist": an installation whose only administrator was deleted or demoted
+// would otherwise be permanently locked out of its own admin console.
 func (s *Service) EnsureBootstrapAdmin(ctx context.Context, username, email, password string) (bool, error) {
-	count, err := s.store.CountUsers(ctx)
+	admins, err := s.store.CountActiveAdmins(ctx)
 	if err != nil {
 		return false, err
 	}
-	if count > 0 {
+	if admins > 0 {
 		return false, nil
 	}
 	_, err = s.CreateUser(ctx, CreateUserInput{
@@ -49,10 +81,33 @@ func (s *Service) EnsureBootstrapAdmin(ctx context.Context, username, email, pas
 		Password: password,
 		Role:     RoleAdmin,
 	})
+	if errors.Is(err, ErrAlreadyExists) {
+		// The installation has no active administrator, yet the configured
+		// identity is already in use by an account that cannot administer it.
+		// Refusing to start is correct — running without an administrator is
+		// not a usable state — but a bare "already exists" leaves the operator
+		// with no way forward, so say exactly which identity clashes and how to
+		// resolve it.
+		if existing, lookupErr := s.store.GetUserByUsername(ctx, username); lookupErr == nil && existing != nil {
+			return false, fmt.Errorf(
+				"cannot bootstrap administrator: username %q is already used by a non-administrator account "+
+					"(role %q, disabled %t); set ADMIN_USERNAME to a different name and restart, "+
+					"or restore administrator access for that account",
+				username, existing.Role, existing.Disabled)
+		}
+		return false, fmt.Errorf(
+			"cannot bootstrap administrator: email %q is already used by another account; "+
+				"set ADMIN_EMAIL to a different address and restart", email)
+	}
 	if err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// CountActiveAdmins returns the number of administrators that can still sign in.
+func (s *Service) CountActiveAdmins(ctx context.Context) (int64, error) {
+	return s.store.CountActiveAdmins(ctx)
 }
 
 type CreateUserInput struct {
@@ -67,8 +122,8 @@ func (s *Service) CreateUser(ctx context.Context, in CreateUserInput) (*User, er
 	if username == "" {
 		return nil, fmt.Errorf("username is required")
 	}
-	if len(in.Password) < 6 {
-		return nil, fmt.Errorf("password must be at least 6 characters")
+	if err := s.validatePassword(in.Password); err != nil {
+		return nil, err
 	}
 	role := in.Role
 	if role == "" {
@@ -109,20 +164,68 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*User, error) {
 }
 
 type UpdateUserInput struct {
+	Username *string
 	Email    *string
 	Role     *Role
 	Disabled *bool
 	Password *string
 }
 
+// UpdateUser applies a partial update to a user account.
+//
+// Credential-affecting changes (password, role, disabled state) invalidate the
+// user's sessions, and a password change also revokes their access tokens,
+// because a token is an alternative credential that would otherwise outlive the
+// password it was issued alongside.
+//
+// Demoting or disabling the last active administrator is refused so an
+// installation can never lock every administrator out.
 func (s *Service) UpdateUser(ctx context.Context, id string, in UpdateUserInput) (*User, error) {
 	u, err := s.store.GetUserByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+
+	// Refuse to remove the last way into the admin console.
+	if u.Role == RoleAdmin && !u.Disabled {
+		losesAdmin := false
+		if in.Role != nil && *in.Role != RoleAdmin {
+			losesAdmin = true
+		}
+		if in.Disabled != nil && *in.Disabled {
+			losesAdmin = true
+		}
+		if losesAdmin {
+			admins, err := s.store.CountActiveAdmins(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if admins <= 1 {
+				return nil, ErrLastAdmin
+			}
+		}
+	}
+
+	if in.Username != nil {
+		username := strings.TrimSpace(*in.Username)
+		if username == "" {
+			return nil, fmt.Errorf("username is required")
+		}
+		if username != u.Username {
+			if existing, err := s.store.GetUserByUsername(ctx, username); err == nil && existing.ID != u.ID {
+				return nil, ErrAlreadyExists
+			} else if err != nil && !errors.Is(err, ErrNotFound) {
+				return nil, err
+			}
+		}
+		u.Username = username
+	}
 	if in.Email != nil {
 		u.Email = strings.TrimSpace(*in.Email)
 	}
+	// Capture the previous role before it is overwritten, so the session
+	// invalidation below knows whether the role actually changed.
+	roleChanged := in.Role != nil && *in.Role != u.Role
 	if in.Role != nil {
 		if *in.Role != RoleAdmin && *in.Role != RoleUser {
 			return nil, fmt.Errorf("invalid role %q", *in.Role)
@@ -132,29 +235,101 @@ func (s *Service) UpdateUser(ctx context.Context, id string, in UpdateUserInput)
 	if in.Disabled != nil {
 		u.Disabled = *in.Disabled
 	}
+
+	passwordChanged := false
 	if in.Password != nil && *in.Password != "" {
-		if len(*in.Password) < 6 {
-			return nil, fmt.Errorf("password must be at least 6 characters")
+		if err := s.validatePassword(*in.Password); err != nil {
+			return nil, err
 		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(*in.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return nil, err
 		}
 		u.PasswordHash = string(hash)
+		passwordChanged = true
 	}
+
 	u.UpdatedAt = time.Now().UTC()
 	if err := s.store.UpdateUser(ctx, u); err != nil {
 		return nil, err
 	}
+
+	// A disabled account must not keep an active session.
 	if u.Disabled {
+		_ = s.store.DeleteSessionsByUser(ctx, u.ID)
+	}
+	// Changing the password invalidates sessions and tokens issued under the old
+	// credential.
+	if passwordChanged {
+		_ = s.store.DeleteSessionsByUser(ctx, u.ID)
+		_ = s.store.RevokeTokensByUser(ctx, u.ID)
+	}
+	// A role change alters what the account is allowed to do, so the sessions
+	// that were opened under the old role are no longer trustworthy.
+	if roleChanged {
 		_ = s.store.DeleteSessionsByUser(ctx, u.ID)
 	}
 	return u, nil
 }
 
+// DeleteUser removes a user account and revokes every credential it owned.
+//
+// Sessions and access tokens are deleted alongside the account so that a token
+// belonging to a deleted user cannot keep authenticating.
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
+	u, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.Role == RoleAdmin && !u.Disabled {
+		admins, err := s.store.CountActiveAdmins(ctx)
+		if err != nil {
+			return err
+		}
+		if admins <= 1 {
+			return ErrLastAdmin
+		}
+	}
 	_ = s.store.DeleteSessionsByUser(ctx, id)
+	_ = s.store.RevokeTokensByUser(ctx, id)
 	return s.store.DeleteUser(ctx, id)
+}
+
+// ChangePassword lets a user replace their own password.
+//
+// The current password must be supplied, and every other session and token of
+// that user is revoked so a stolen credential cannot outlive the change.
+func (s *Service) ChangePassword(ctx context.Context, id, currentPassword, newPassword string) (*User, error) {
+	u, err := s.store.GetUserByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(currentPassword)); err != nil {
+		return nil, ErrInvalidCreds
+	}
+	if err := s.validatePassword(newPassword); err != nil {
+		return nil, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	u.PasswordHash = string(hash)
+	u.UpdatedAt = time.Now().UTC()
+	if err := s.store.UpdateUser(ctx, u); err != nil {
+		return nil, err
+	}
+	_ = s.store.DeleteSessionsByUser(ctx, u.ID)
+	_ = s.store.RevokeTokensByUser(ctx, u.ID)
+	return u, nil
+}
+
+// validatePassword enforces the password policy.
+func (s *Service) validatePassword(password string) error {
+	if len(password) < s.MinPasswordLength() {
+		return fmt.Errorf("password must be at least %d characters", s.MinPasswordLength())
+	}
+	return nil
 }
 
 // Login validates credentials and returns a new opaque session token along with the user.
@@ -238,6 +413,36 @@ func (s *Service) CreateToken(ctx context.Context, in CreateTokenInput) (*Access
 		}
 	}
 
+	// A token may never grant more than its owner has. Owners that are not
+	// administrators cannot mint admin-scoped tokens, and admin scope is
+	// stripped from the requested scopes rather than rejected so that a
+	// well-intentioned request still yields a usable (narrower) token.
+	if in.UserID != "" {
+		owner, err := s.store.GetUserByID(ctx, in.UserID)
+		if err != nil {
+			return nil, "", err
+		}
+		if owner.Disabled {
+			return nil, "", ErrUserDisabled
+		}
+		if owner.Role != RoleAdmin {
+			filtered := make([]Permission, 0, len(cleanScopes))
+			for _, sc := range cleanScopes {
+				if sc == PermissionAdmin {
+					continue
+				}
+				filtered = append(filtered, sc)
+			}
+			if len(filtered) != len(cleanScopes) {
+				// The request asked for administrative rights the owner does not
+				// have. Silently narrowing it would hide the mistake, so the
+				// request is refused.
+				return nil, "", fmt.Errorf("%w: token scope exceeds the owner's permissions", ErrInvalidScope)
+			}
+			cleanScopes = filtered
+		}
+	}
+
 	rawSecret := "mr_" + randomSecret(32)
 	prefix := rawSecret[:11]
 	now := time.Now().UTC()
@@ -271,11 +476,68 @@ func (s *Service) ListTokens(ctx context.Context, registryID string) ([]*AccessT
 	return s.store.ListTokens(ctx, registryID)
 }
 
+// ListUserTokens returns the access tokens owned by a single user.
+func (s *Service) ListUserTokens(ctx context.Context, userID string) ([]*AccessToken, error) {
+	return s.store.ListTokensByUser(ctx, userID)
+}
+
+// TokenOwnerID returns the id of the user that owns a token.
+func (s *Service) TokenOwnerID(ctx context.Context, tokenID string) (string, error) {
+	tok, err := s.store.GetTokenByID(ctx, tokenID)
+	if err != nil {
+		return "", err
+	}
+	return tok.UserID, nil
+}
+
+// RevokeToken revokes a token after checking that the caller may do so.
+//
+// When caller is empty the revocation is administrative and unrestricted.
+// Otherwise the token must belong to the caller: a user can never revoke
+// somebody else's token.
 func (s *Service) RevokeToken(ctx context.Context, id string) error {
+	return s.revokeTokenAs(ctx, id, "")
+}
+
+// RevokeTokenForUser revokes a token on behalf of a specific user, enforcing
+// ownership.
+func (s *Service) RevokeTokenForUser(ctx context.Context, id, callerUserID string) error {
+	return s.revokeTokenAs(ctx, id, callerUserID)
+}
+
+func (s *Service) revokeTokenAs(ctx context.Context, id, callerUserID string) error {
+	if callerUserID != "" {
+		tok, err := s.store.GetTokenByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if tok.UserID != callerUserID {
+			return ErrForbidden
+		}
+	}
 	return s.store.RevokeToken(ctx, id)
 }
 
+// DeleteToken removes a token after checking that the caller may do so.
+//
+// Ownership rules mirror RevokeToken: a non-admin caller may only delete their
+// own tokens.
 func (s *Service) DeleteToken(ctx context.Context, id string) error {
+	return s.DeleteTokenForUser(ctx, id, "")
+}
+
+// DeleteTokenForUser deletes a token on behalf of a specific user, enforcing
+// ownership.
+func (s *Service) DeleteTokenForUser(ctx context.Context, id, callerUserID string) error {
+	if callerUserID != "" {
+		tok, err := s.store.GetTokenByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if tok.UserID != callerUserID {
+			return ErrForbidden
+		}
+	}
 	return s.store.DeleteToken(ctx, id)
 }
 
@@ -338,14 +600,23 @@ func (s *Service) authenticateAccessToken(ctx context.Context, raw string) (*Pri
 	if tok.ExpiresAt != nil && time.Now().UTC().After(*tok.ExpiresAt) {
 		return nil, ErrTokenExpired
 	}
+	// Resolve the token owner. A token that references a user which no longer
+	// exists (or cannot be loaded) must not authenticate: silently ignoring the
+	// lookup failure would leave deleted users' tokens working.
 	var owner *User
 	if tok.UserID != "" {
-		if u, err := s.store.GetUserByID(ctx, tok.UserID); err == nil {
-			if u.Disabled {
-				return nil, ErrUserDisabled
+		u, err := s.store.GetUserByID(ctx, tok.UserID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				_ = s.store.RevokeToken(ctx, tok.ID)
+				return nil, ErrUnauthenticated
 			}
-			owner = u
+			return nil, err
 		}
+		if u.Disabled {
+			return nil, ErrUserDisabled
+		}
+		owner = u
 	}
 	now := time.Now().UTC()
 	_ = s.store.UpdateTokenLastUsed(ctx, tok.ID, now)
@@ -411,6 +682,19 @@ func (s *Service) Authorize(principal *Principal, req AuthRequest) error {
 		// Check scope
 		if !hasScope(tok.Scopes, req.Permission) {
 			return ErrForbidden
+		}
+
+		// A token can never exceed the permissions of the user that owns it.
+		// This is enforced here as well as at creation time so that a token
+		// issued while the owner was an administrator stops working after the
+		// owner is demoted.
+		if principal.User != nil && principal.User.Role != RoleAdmin {
+			if req.Permission == PermissionAdmin {
+				return ErrForbidden
+			}
+			if tok.Scopes != nil && hasScope(tok.Scopes, PermissionAdmin) {
+				return ErrForbidden
+			}
 		}
 
 		// Check namespace restriction when a namespace/package name is specified
@@ -521,6 +805,24 @@ func randomSecret(nBytes int) string {
 	b := make([]byte, nBytes)
 	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// GeneratePassword returns a cryptographically random password suitable for
+// bootstrapping an administrator account.
+//
+// It is used when no ADMIN_PASSWORD is configured, so that a fresh
+// installation never ships with a well-known default credential.
+func GeneratePassword(length int) string {
+	if length < 20 {
+		length = 20
+	}
+	// 3 random bytes per character keeps the alphabet wide while staying
+	// friendly to copy/paste; base64 raw-URL encoding has no padding.
+	raw := randomSecret(length)
+	for len(raw) < length {
+		raw += randomSecret(length)
+	}
+	return raw[:length]
 }
 
 func newID() string {

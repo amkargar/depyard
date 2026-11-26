@@ -106,8 +106,8 @@ func makePubTarball(t *testing.T, pkgName, version, bodyExtra string) ([]byte, s
 	tw := tar.NewWriter(gzw)
 	pubspec := fmt.Sprintf("name: %s\nversion: %s\ndescription: Test package %s\n", pkgName, version, pkgName)
 	files := map[string]string{
-		"pubspec.yaml":       pubspec,
-		"README.md":          "# " + pkgName + "\n" + bodyExtra,
+		"pubspec.yaml":             pubspec,
+		"README.md":                "# " + pkgName + "\n" + bodyExtra,
 		"lib/" + pkgName + ".dart": "const v = '" + version + "'; " + bodyExtra,
 	}
 	for name, content := range files {
@@ -257,8 +257,8 @@ func TestMultiRegistryExtensibilityAndDartPubCompatibility(t *testing.T) {
 	auditSvc := audit.NewService(ms)
 	pubStore := pub.NewMemoryStore()
 
-	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "adminpass")
-	adminUser, adminSessionToken, _, err := authSvc.Login(ctx, "admin", "adminpass", "test", "127.0.0.1")
+	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "admin-password-1234")
+	adminUser, adminSessionToken, _, err := authSvc.Login(ctx, "admin", "admin-password-1234", "test", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("admin login: %v", err)
 	}
@@ -701,8 +701,8 @@ func TestFlutterStorageAdminSettingsAndUpstreamManagement(t *testing.T) {
 	metricsCol := metrics.NewCollector(ms)
 	auditSvc := audit.NewService(ms)
 
-	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "adminpass")
-	_, adminToken, _, err := authSvc.Login(ctx, "admin", "adminpass", "test", "127.0.0.1")
+	_, _ = authSvc.EnsureBootstrapAdmin(ctx, "admin", "admin@test.local", "admin-password-1234")
+	_, adminToken, _, err := authSvc.Login(ctx, "admin", "admin-password-1234", "test", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("admin login: %v", err)
 	}

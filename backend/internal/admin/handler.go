@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -124,6 +125,17 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("PUT /api/admin/users/{id}", h.requireAdmin(h.handleUpdateUser))
 	h.mux.HandleFunc("DELETE /api/admin/users/{id}", h.requireAdmin(h.handleDeleteUser))
 
+	// Self-service account management (any authenticated user)
+	h.mux.HandleFunc("GET /api/admin/profile", h.requireAuth(h.handleGetProfile))
+	h.mux.HandleFunc("PUT /api/admin/profile", h.requireAuth(h.handleUpdateProfile))
+	h.mux.HandleFunc("POST /api/admin/profile/password", h.requireAuth(h.handleChangeOwnPassword))
+
+	// Personal access tokens (any authenticated user; ownership enforced)
+	h.mux.HandleFunc("GET /api/admin/my/tokens", h.requireAuth(h.handleListMyTokens))
+	h.mux.HandleFunc("POST /api/admin/my/tokens", h.requireAuth(h.handleCreateMyToken))
+	h.mux.HandleFunc("POST /api/admin/my/tokens/{id}/revoke", h.requireAuth(h.handleRevokeMyToken))
+	h.mux.HandleFunc("DELETE /api/admin/my/tokens/{id}", h.requireAuth(h.handleDeleteMyToken))
+
 	// Unified Monitoring & Stats
 	h.mux.HandleFunc("GET /api/admin/stats/overview", h.requireAdmin(h.handleStatsOverview))
 	h.mux.HandleFunc("GET /api/admin/stats/registries/{id}", h.requireAdmin(h.handleRegistryStats))
@@ -140,6 +152,26 @@ func (h *Handler) registerRoutes() {
 }
 
 type adminHandlerFunc func(w http.ResponseWriter, r *http.Request, principal *auth.Principal)
+
+// requireAuth admits any authenticated principal (admin or regular user).
+//
+// This is the middleware for self-service endpoints. Authorization beyond
+// "you are signed in" is expressed inside the handler, e.g. by checking token
+// ownership, so that authentication and authorization stay separate concerns.
+func (h *Handler) requireAuth(fn adminHandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal, err := h.auth.AuthenticateRequest(r.Context(), r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if !principal.Authenticated {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		fn(w, r, principal)
+	}
+}
 
 func (h *Handler) requireAdmin(fn adminHandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -163,18 +195,18 @@ func (h *Handler) requireAdmin(fn adminHandlerFunc) http.HandlerFunc {
 // --- Public Directory ---
 
 type PublicRegistryView struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	Slug          string                `json:"slug"`
-	Type          string                `json:"type"`
-	Description   string                `json:"description"`
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Slug          string                  `json:"slug"`
+	Type          string                  `json:"type"`
+	Description   string                  `json:"description"`
 	Mode          registry.RepositoryMode `json:"mode"`
-	Visibility    registry.Visibility   `json:"visibility"`
-	IsDefault     bool                  `json:"is_default"`
-	BasePath      string                `json:"base_path"`
-	Capabilities  registry.Capabilities `json:"capabilities"`
-	ArtifactCount int64                 `json:"artifact_count"`
-	Downloads     int64                 `json:"downloads"`
+	Visibility    registry.Visibility     `json:"visibility"`
+	IsDefault     bool                    `json:"is_default"`
+	BasePath      string                  `json:"base_path"`
+	Capabilities  registry.Capabilities   `json:"capabilities"`
+	ArtifactCount int64                   `json:"artifact_count"`
+	Downloads     int64                   `json:"downloads"`
 }
 
 func (h *Handler) handlePublicListRegistries(w http.ResponseWriter, r *http.Request) {
@@ -310,6 +342,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    rawToken,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  sess.ExpiresAt,
 	})
@@ -344,6 +377,7 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   requestIsSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -460,21 +494,21 @@ func (h *Handler) handleGetRegistry(w http.ResponseWriter, r *http.Request, _ *a
 
 func (h *Handler) handleCreateRegistry(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	var body struct {
-		Name              string                  `json:"name"`
-		Slug              string                  `json:"slug"`
-		Type              string                  `json:"type"`
-		Description       string                  `json:"description"`
+		Name              string                   `json:"name"`
+		Slug              string                   `json:"slug"`
+		Type              string                   `json:"type"`
+		Description       string                   `json:"description"`
 		Enabled           *bool                    `json:"enabled"`
 		Mode              registry.RepositoryMode  `json:"mode"`
 		UpstreamURL       string                   `json:"upstream_url"`
 		UpstreamConfig    *registry.UpstreamConfig `json:"upstream_config"`
 		Visibility        registry.Visibility      `json:"visibility"`
-		AuthPolicy        *registry.AuthPolicy    `json:"auth_policy"`
-		StorageQuotaBytes int64                   `json:"storage_quota_bytes"`
-		CachePolicy       *registry.CachePolicy   `json:"cache_policy"`
-		Config            map[string]any          `json:"config"`
-		IsDefault         bool                    `json:"is_default"`
-		Hostname          string                  `json:"hostname"`
+		AuthPolicy        *registry.AuthPolicy     `json:"auth_policy"`
+		StorageQuotaBytes int64                    `json:"storage_quota_bytes"`
+		CachePolicy       *registry.CachePolicy    `json:"cache_policy"`
+		Config            map[string]any           `json:"config"`
+		IsDefault         bool                     `json:"is_default"`
+		Hostname          string                   `json:"hostname"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON payload")
@@ -884,7 +918,10 @@ func (h *Handler) handleListTokens(w http.ResponseWriter, r *http.Request, _ *au
 
 func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	var body struct {
-		Name         string            `json:"name"`
+		Name string `json:"name"`
+		// UserID issues the token on behalf of another account. It is optional:
+		// when empty the token belongs to the calling administrator.
+		UserID       string            `json:"user_id"`
 		RegistryID   string            `json:"registry_id"`
 		RegistryType string            `json:"registry_type"`
 		Scopes       []auth.Permission `json:"scopes"`
@@ -919,6 +956,22 @@ func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, prin
 	if principal.User != nil {
 		userID = principal.User.ID
 	}
+	// An administrator may issue a token on behalf of another account, for
+	// example when provisioning a CI job for a teammate. The requested owner
+	// must exist and must not be disabled, otherwise the token would be dead
+	// on arrival.
+	if target := strings.TrimSpace(body.UserID); target != "" && target != userID {
+		owner, err := h.auth.GetUserByID(r.Context(), target)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "selected user does not exist")
+			return
+		}
+		if owner.Disabled {
+			writeError(w, http.StatusBadRequest, "selected user account is disabled")
+			return
+		}
+		userID = owner.ID
+	}
 
 	tok, plaintext, err := h.auth.CreateToken(r.Context(), auth.CreateTokenInput{
 		Name:         body.Name,
@@ -944,7 +997,11 @@ func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, prin
 		Target:     tok.Name,
 		IPAddress:  clientIP(r),
 		Success:    true,
-		Details:    map[string]any{"scopes": tok.Scopes, "namespaces": tok.Namespaces},
+		Details: map[string]any{
+			"scopes":     tok.Scopes,
+			"namespaces": tok.Namespaces,
+			"owner_id":   tok.UserID,
+		},
 	})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token":     tok,
@@ -1048,6 +1105,7 @@ func (h *Handler) handleCreateUser(w http.ResponseWriter, r *http.Request, princ
 func (h *Handler) handleUpdateUser(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	id := r.PathValue("id")
 	var body struct {
+		Username *string    `json:"username"`
 		Email    *string    `json:"email"`
 		Role     *auth.Role `json:"role"`
 		Disabled *bool      `json:"disabled"`
@@ -1058,6 +1116,7 @@ func (h *Handler) handleUpdateUser(w http.ResponseWriter, r *http.Request, princ
 		return
 	}
 	u, err := h.auth.UpdateUser(r.Context(), id, auth.UpdateUserInput{
+		Username: body.Username,
 		Email:    body.Email,
 		Role:     body.Role,
 		Disabled: body.Disabled,
@@ -1065,8 +1124,13 @@ func (h *Handler) handleUpdateUser(w http.ResponseWriter, r *http.Request, princ
 	})
 	if err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, auth.ErrNotFound) {
+		switch {
+		case errors.Is(err, auth.ErrNotFound):
 			status = http.StatusNotFound
+		case errors.Is(err, auth.ErrAlreadyExists):
+			status = http.StatusConflict
+		case errors.Is(err, auth.ErrLastAdmin):
+			status = http.StatusConflict
 		}
 		writeError(w, status, err.Error())
 		return
@@ -1080,21 +1144,32 @@ func (h *Handler) handleUpdateUser(w http.ResponseWriter, r *http.Request, princ
 		IPAddress: clientIP(r),
 		Success:   true,
 	})
-	writeJSON(w, http.StatusOK, u)
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
 func (h *Handler) handleDeleteUser(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	id := r.PathValue("id")
 	if principal.User != nil && principal.User.ID == id {
+		// Deleting your own account is refused. The last-administrator guard is
+		// reported separately, because that is the more informative reason when
+		// it applies.
+		admins, err := h.auth.CountActiveAdmins(r.Context())
+		if err == nil && admins <= 1 {
+			writeError(w, http.StatusConflict, auth.ErrLastAdmin.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, "cannot delete your own active admin account")
 		return
 	}
 	if err := h.auth.DeleteUser(r.Context(), id); err != nil {
-		if errors.Is(err, auth.ErrNotFound) {
+		switch {
+		case errors.Is(err, auth.ErrNotFound):
 			writeError(w, http.StatusNotFound, "user not found")
-			return
+		case errors.Is(err, auth.ErrLastAdmin):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.audit.Record(r.Context(), audit.Entry{
@@ -1102,6 +1177,277 @@ func (h *Handler) handleDeleteUser(w http.ResponseWriter, r *http.Request, princ
 		ActorName: principal.ActorName(),
 		ActorType: principal.Kind,
 		Action:    "user.delete",
+		Target:    id,
+		IPAddress: clientIP(r),
+		Success:   true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+// --- Self-service Account Management ---
+
+// handleGetProfile returns the caller's own account.
+func (h *Handler) handleGetProfile(w http.ResponseWriter, _ *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "profile is only available for user sessions")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":                principal.User,
+		"is_admin":            principal.IsAdmin(),
+		"min_password_length": h.auth.MinPasswordLength(),
+	})
+}
+
+// handleUpdateProfile lets a user edit their own username and email.
+//
+// Role and disabled state are deliberately not editable here: those are
+// administrative decisions, and allowing self-service changes would let a user
+// grant themselves administrator rights.
+func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "profile is only available for user sessions")
+		return
+	}
+	var body struct {
+		Username *string `json:"username"`
+		Email    *string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	if body.Username == nil && body.Email == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	u, err := h.auth.UpdateUser(r.Context(), principal.User.ID, auth.UpdateUserInput{
+		Username: body.Username,
+		Email:    body.Email,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, auth.ErrAlreadyExists):
+			writeError(w, http.StatusConflict, "username is already taken")
+		default:
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	h.audit.Record(r.Context(), audit.Entry{
+		ActorID:   principal.ActorID(),
+		ActorName: principal.ActorName(),
+		ActorType: principal.Kind,
+		Action:    "profile.update",
+		Target:    u.Username,
+		IPAddress: clientIP(r),
+		Success:   true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
+// handleChangeOwnPassword lets a user change their own password after proving
+// they know the current one. All other sessions and personal tokens are revoked
+// by the service layer.
+func (h *Handler) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "password change is only available for user sessions")
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	if strings.TrimSpace(body.CurrentPassword) == "" {
+		writeError(w, http.StatusBadRequest, "current password is required")
+		return
+	}
+	if strings.TrimSpace(body.NewPassword) == "" {
+		writeError(w, http.StatusBadRequest, "new password is required")
+		return
+	}
+	u, err := h.auth.ChangePassword(r.Context(), principal.User.ID, body.CurrentPassword, body.NewPassword)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrInvalidCreds):
+			writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		case errors.Is(err, auth.ErrNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		default:
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	h.audit.Record(r.Context(), audit.Entry{
+		ActorID:   principal.ActorID(),
+		ActorName: principal.ActorName(),
+		ActorType: principal.Kind,
+		Action:    "profile.password_change",
+		Target:    u.Username,
+		IPAddress: clientIP(r),
+		Success:   true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                        true,
+		"reauthentication_required": true,
+	})
+}
+
+// --- Personal Access Tokens ---
+
+// handleListMyTokens lists the tokens owned by the calling user.
+func (h *Handler) handleListMyTokens(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "personal tokens are only available for user sessions")
+		return
+	}
+	tokens, err := h.auth.ListUserTokens(r.Context(), principal.User.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tokens == nil {
+		tokens = []*auth.AccessToken{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
+}
+
+// handleCreateMyToken creates a personal access token for the calling user.
+//
+// The token is always owned by the caller; a user can never mint a token for
+// somebody else, and the service layer caps the scopes at the caller's own
+// permissions.
+func (h *Handler) handleCreateMyToken(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "personal tokens are only available for user sessions")
+		return
+	}
+	var body struct {
+		Name         string            `json:"name"`
+		RegistryID   string            `json:"registry_id"`
+		RegistryType string            `json:"registry_type"`
+		Scopes       []auth.Permission `json:"scopes"`
+		Namespaces   []string          `json:"namespaces"`
+		ExpiresDays  int               `json:"expires_days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	var slug string
+	if body.RegistryID != "" {
+		inst, err := h.manager.GetInstance(r.Context(), body.RegistryID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "selected registry does not exist")
+			return
+		}
+		slug = inst.Slug
+		if body.RegistryType == "" {
+			body.RegistryType = inst.Type
+		}
+	}
+
+	var expiresIn *time.Duration
+	if body.ExpiresDays > 0 {
+		d := time.Duration(body.ExpiresDays) * 24 * time.Hour
+		expiresIn = &d
+	}
+
+	tok, plaintext, err := h.auth.CreateToken(r.Context(), auth.CreateTokenInput{
+		Name:         body.Name,
+		UserID:       principal.User.ID,
+		RegistryID:   body.RegistryID,
+		RegistrySlug: slug,
+		RegistryType: body.RegistryType,
+		Scopes:       body.Scopes,
+		Namespaces:   body.Namespaces,
+		ExpiresIn:    expiresIn,
+	})
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, auth.ErrInvalidScope) {
+			status = http.StatusForbidden
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+	h.audit.Record(r.Context(), audit.Entry{
+		ActorID:    principal.ActorID(),
+		ActorName:  principal.ActorName(),
+		ActorType:  principal.Kind,
+		Action:     "token.create",
+		RegistryID: tok.RegistryID,
+		Target:     tok.Name,
+		IPAddress:  clientIP(r),
+		Success:    true,
+		Details:    map[string]any{"scopes": tok.Scopes, "namespaces": tok.Namespaces, "personal": true},
+	})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"token":     tok,
+		"plaintext": plaintext, // Shown once!
+	})
+}
+
+// handleRevokeMyToken revokes one of the caller's own tokens.
+func (h *Handler) handleRevokeMyToken(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "personal tokens are only available for user sessions")
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.auth.RevokeTokenForUser(r.Context(), id, principal.User.ID); err != nil {
+		switch {
+		case errors.Is(err, auth.ErrNotFound):
+			writeError(w, http.StatusNotFound, "token not found")
+		case errors.Is(err, auth.ErrForbidden):
+			writeError(w, http.StatusForbidden, "you can only manage your own tokens")
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	h.audit.Record(r.Context(), audit.Entry{
+		ActorID:   principal.ActorID(),
+		ActorName: principal.ActorName(),
+		ActorType: principal.Kind,
+		Action:    "token.revoke",
+		Target:    id,
+		IPAddress: clientIP(r),
+		Success:   true,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"revoked": true})
+}
+
+// handleDeleteMyToken deletes one of the caller's own tokens.
+func (h *Handler) handleDeleteMyToken(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
+	if principal.User == nil {
+		writeError(w, http.StatusBadRequest, "personal tokens are only available for user sessions")
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.auth.DeleteTokenForUser(r.Context(), id, principal.User.ID); err != nil {
+		switch {
+		case errors.Is(err, auth.ErrNotFound):
+			writeError(w, http.StatusNotFound, "token not found")
+		case errors.Is(err, auth.ErrForbidden):
+			writeError(w, http.StatusForbidden, "you can only manage your own tokens")
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	h.audit.Record(r.Context(), audit.Entry{
+		ActorID:   principal.ActorID(),
+		ActorName: principal.ActorName(),
+		ActorType: principal.Kind,
+		Action:    "token.delete",
 		Target:    id,
 		IPAddress: clientIP(r),
 		Success:   true,
@@ -1415,4 +1761,40 @@ func clientIP(r *http.Request) string {
 		return strings.TrimSpace(parts[0])
 	}
 	return r.RemoteAddr
+}
+
+// requestIsSecure reports whether the session cookie should carry the Secure
+// attribute.
+//
+// The cookie is marked Secure whenever the request reached the server over
+// TLS, either directly or through a proxy that terminated TLS. Plain HTTP on a
+// loopback address is the one exception: that is the local development setup,
+// where a Secure cookie would never be sent back by the browser and the user
+// would appear to be unable to sign in.
+func requestIsSecure(r *http.Request) bool {
+	if r == nil {
+		return true
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return true
+	}
+	if r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") {
+		return true
+	}
+	host := ""
+	if r.Host != "" {
+		host = r.Host
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
+		return false
+	}
+	return true
 }

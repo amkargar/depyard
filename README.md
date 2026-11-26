@@ -63,6 +63,32 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
 - On first startup with an empty database, both `pub-public` (`PUB_HOSTED_URL`) and `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`) are seeded automatically.
 
+### Signing in for the first time
+
+There is no default password. On the very first start the backend creates the
+administrator account and either uses `ADMIN_PASSWORD` if you set it, or
+generates a random one and prints it **once** in the log:
+
+```bash
+# 1. Start the stack
+HTTP_PORT=8080 docker compose up --build -d
+
+# 2. Read the generated administrator password (only appears on first boot)
+docker compose logs backend | grep "generated for the initial admin"
+
+#    ...or, to choose your own password instead, set it before the first start
+#    (minimum 12 characters):
+#    ADMIN_PASSWORD='your-strong-password' HTTP_PORT=8080 docker compose up --build -d
+```
+
+Open `http://localhost:8080`, sign in as `admin` with that password, then change
+it from **My Account → Profile**. Keep the log line out of shared/CI logs until
+you have done so.
+
+If you ever lose the password: a fresh database bootstraps a new administrator;
+for an existing database, sign in as another administrator and reset it from
+**Admin Console → Users**.
+
 ## Creating & Managing Admin Users
 
 There are three ways to create an administrator account:
@@ -77,7 +103,18 @@ ADMIN_PASSWORD=your-strong-password
 ADMIN_EMAIL=admin@example.com
 ```
 
-When the users collection has no admin user yet, the backend automatically creates this admin account on startup (default fallback if unset: `admin` / `changeme123` — change this immediately in production).
+When no **active** administrator exists yet, the backend automatically creates this admin account on startup.
+
+If `ADMIN_PASSWORD` is not set, the server generates a strong random password and prints it **once** in the startup log:
+
+```
+WARN no ADMIN_PASSWORD configured: a password was generated for the initial admin account
+     username=admin password=<generated>
+```
+
+Store it, then change it from **My Account → Profile** after signing in. Passwords must be at least 12 characters (`MIN_PASSWORD_LENGTH` can relax the floor for existing deployments).
+
+`ADMIN_PASSWORD` is only read when the account is **created** — changing it later does not reset an existing administrator's password. A value shorter than the minimum makes the server refuse to start rather than come up with a weak credential. See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
 
 ### 2. Via the Admin Web UI
 
@@ -85,15 +122,33 @@ When the users collection has no admin user yet, the backend automatically creat
 2. Open **Admin Console → Users** (`/admin/users`).
 3. Click **Create User**, enter the username, email, and password, set **Role** to **`Admin`**, and click **Create User**.
 
+The same page lets you edit an account (username, email, role, status, and an
+optional password reset). The last active administrator cannot be demoted,
+disabled, or deleted — the platform refuses the request rather than locking
+everybody out.
+
+### Regular Users
+
+A non-administrator signs in at `http://localhost/login` and lands on **My
+Account** (`/dashboard`) instead of the admin console. There they can:
+
+- edit their own username and email, and change their own password
+  (`/profile`),
+- create, revoke and delete **personal access tokens** (`/tokens`),
+- browse the public registries published on the instance.
+
+Personal tokens are bound to the owner and can never grant more than the
+owner's own permissions: a regular user cannot mint an `admin`-scoped token.
+
 ### 3. Via the Admin HTTP API
 
 Authenticate as an existing admin (session cookie or admin Bearer token) and send a `POST /api/admin/users` request:
 
 ```bash
 # 1. Log in to obtain an admin session token
-TOKEN=$(curl -sS -X POST http://localhost/api/auth/login \
+TOKEN=$(curl -sS -X POST http://localhost/api/admin/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"changeme123"}' | jq -r '.token')
+  -d '{"username":"admin","password":"your-strong-password"}' | jq -r '.token')
 
 # 2. Create a new admin user
 curl -sS -X POST http://localhost/api/admin/users \
@@ -132,7 +187,71 @@ docker load -i mirror-registry-images-v1.0.0-linux-amd64.tar.gz
 HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
 ```
 
-Then open `http://localhost:8080`.
+Then open `http://localhost:8080` and sign in as `admin`. Read the generated
+password once from the log (or set `ADMIN_PASSWORD` to 12+ characters before the
+first start):
+
+```bash
+docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
+```
+
+To move to a newer version later, see [Upgrading to a New Version](#upgrading-to-a-new-version).
+
+## Upgrading to a New Version
+
+Images are published to GHCR as `ghcr.io/<owner>/mirror-registry-backend` and
+`-nginx` for `linux/amd64` and `linux/arm64`, tagged with the release tag and
+`latest`. Each release page also attaches the image archives and a
+`docker-compose.release.yml` whose default tag is pinned to that release.
+
+Upgrading means pointing the stack at a new image tag and restarting it. There
+is no migration step: all state lives in two named volumes — `mongo_data`
+(users, sessions, tokens, registries, metadata) and `registry_blobs`
+(content-addressed artifacts, deduplicated across registries) — and the
+containers are stateless, so accounts, tokens and artifacts are preserved.
+
+Use the same `HTTP_PORT` (and any `.env` values) as your original install.
+
+### Online (pull from GHCR)
+
+Replace `vX.Y.Z` with the version you are installing:
+
+```bash
+export MIRROR_REGISTRY_TAG=vX.Y.Z
+
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+`up -d` recreates only the containers whose image changed. The stack is
+unavailable only for the few seconds until the new healthcheck passes.
+
+### Offline / air-gapped
+
+```bash
+# Intel/AMD — use the arm64 archive on Apple Silicon or ARM servers
+docker load -i mirror-registry-images-vX.Y.Z-linux-amd64.tar.gz
+
+export MIRROR_REGISTRY_TAG=vX.Y.Z
+docker compose -f docker-compose.release.yml up -d
+```
+
+The archive contains both images tagged with that version, so the tag you export
+must match the archive name.
+
+### Verify, then roll back if needed
+
+```bash
+sha256sum -c SHA256SUMS.txt                              # verify a downloaded archive
+docker compose -f docker-compose.release.yml logs -f backend | head -30
+```
+
+To roll back, set `MIRROR_REGISTRY_TAG` to the version you came from and run
+`docker compose -f docker-compose.release.yml up -d` again. Published images
+stay available, and the volumes are version-agnostic.
+
+Every version upgrades the same way, so this section stays valid as new releases
+ship.
 
 ## Using with Dart & Flutter
 
@@ -196,7 +315,7 @@ category's TTL). A registry can opt out of category merging with `"download_stor
 ```bash
 TOKEN=$(curl -s -X POST http://localhost/api/admin/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | jq -r .token)
+  -d '{"username":"admin","password":"your-strong-password"}' | jq -r .token)
 
 # Save the base settings (validated by the same strict parser the runtime uses)
 curl -s -X PUT http://localhost/api/admin/settings \
@@ -310,6 +429,13 @@ MONGODB_URI="mongodb://localhost:27017" go run ./cmd/server
 # Or standalone in-memory mode for quick local UI testing:
 STORAGE_BACKEND=memory SEED_DEMO_PACKAGES=true go run ./cmd/server
 ```
+
+The first start creates the administrator and prints a generated password on the
+`no ADMIN_PASSWORD configured` warning line — copy it and sign in at
+`http://localhost:3000/login` (the Nuxt dev server proxies `/api` to the
+backend). In-memory mode starts from an empty database every run, so that line
+reappears on each restart; with MongoDB the account persists and the
+password is only generated once.
 
 ### Frontend
 

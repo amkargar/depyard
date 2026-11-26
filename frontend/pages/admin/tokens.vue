@@ -1,14 +1,34 @@
 <script setup lang="ts">
 import { Plus, Copy, Check, Ban, Trash2, KeyRound } from 'lucide-vue-next'
-import type { AccessToken, PermissionScope, RegistryInstance } from '~/types/registry'
+import type { AccessToken, PermissionScope, RegistryInstance, User } from '~/types/registry'
 import { formatDate, formatRelative, copyText } from '~/utils/format'
 
 definePageMeta({ layout: 'admin' })
 
+const { user: currentUser } = useAuth()
 const loading = ref(true)
 const errorMsg = ref('')
 const tokens = ref<AccessToken[]>([])
 const registries = ref<RegistryInstance[]>([])
+// The owner of each token, so an administrator reviewing the platform-wide list
+// can tell whose token they are looking at. Tokens created before this was
+// exposed have no resolvable owner and are shown as "unknown".
+const owners = ref<Record<string, User>>({})
+const users = ref<User[]>([])
+
+const ownerName = (token: AccessToken) => owners.value[token.user_id]?.username || 'unknown'
+
+// The owner of a newly created token. An administrator can issue a token on
+// behalf of another account — for example to provision a CI job for a
+// teammate — so the default is the administrator's own account.
+const ownerOptions = computed(() => [
+  ...(currentUser.value
+    ? [{ value: currentUser.value.id, label: `${currentUser.value.username} (you)` }]
+    : []),
+  ...users.value
+    .filter((u) => u.id !== currentUser.value?.id)
+    .map((u) => ({ value: u.id, label: u.username })),
+])
 
 const registryScopeOptions = computed(() => [
   { value: '', label: 'All Registries' },
@@ -24,6 +44,7 @@ const copiedSecret = ref(false)
 
 const form = reactive({
   name: '',
+  user_id: '',
   registry_id: '',
   scopes: ['read', 'publish'] as PermissionScope[],
   namespacesRaw: '',
@@ -36,12 +57,17 @@ async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [tokRes, regRes] = await Promise.all([
+    const [tokRes, regRes, userRes] = await Promise.all([
       apiFetch<{ tokens: AccessToken[] }>('/api/admin/tokens'),
       apiFetch<{ registries: RegistryInstance[] }>('/api/admin/registries'),
+      apiFetch<{ users: User[] }>('/api/admin/users').catch(() => ({ users: [] as User[] })),
     ])
     tokens.value = tokRes.tokens || []
     registries.value = regRes.registries || []
+    const map: Record<string, User> = {}
+    for (const u of userRes.users || []) map[u.id] = u
+    owners.value = map
+    users.value = userRes.users || []
   } catch (err: any) {
     errorMsg.value = err?.message || 'Failed to load access tokens'
   } finally {
@@ -53,6 +79,18 @@ function toggleScope(sc: PermissionScope) {
   const idx = form.scopes.indexOf(sc)
   if (idx === -1) form.scopes.push(sc)
   else form.scopes.splice(idx, 1)
+}
+
+// Opening the dialog resets the form and defaults the owner to the signed-in
+// administrator, which is the common case.
+function openCreate() {
+  form.name = ''
+  form.user_id = currentUser.value?.id || ''
+  form.registry_id = ''
+  form.scopes = ['read', 'publish']
+  form.namespacesRaw = ''
+  form.expires_days = 90
+  createOpen.value = true
 }
 
 async function handleCreate() {
@@ -68,6 +106,7 @@ async function handleCreate() {
       method: 'POST',
       body: JSON.stringify({
         name: form.name.trim(),
+        user_id: form.user_id,
         registry_id: form.registry_id,
         scopes: form.scopes,
         namespaces,
@@ -116,7 +155,7 @@ onMounted(loadData)
           Issue registry-scoped tokens with granular permissions and optional package namespace restrictions.
         </p>
       </div>
-      <UiButton size="sm" @click="createOpen = true">
+      <UiButton size="sm" @click="openCreate">
         <Plus class="h-4 w-4" />
         Create Token
       </UiButton>
@@ -152,6 +191,7 @@ onMounted(loadData)
           <thead>
             <tr class="border-b bg-muted/40 text-left text-xs font-medium text-muted-foreground">
               <th class="px-5 py-3">Name &amp; Prefix</th>
+              <th class="px-4 py-3">Owner</th>
               <th class="px-4 py-3">Registry Scope</th>
               <th class="px-4 py-3">Permissions</th>
               <th class="px-4 py-3">Namespaces</th>
@@ -161,10 +201,10 @@ onMounted(loadData)
           </thead>
           <tbody class="divide-y">
             <tr v-if="loading">
-              <td colspan="6" class="px-5 py-8 text-center text-muted-foreground">Loading tokens...</td>
+              <td colspan="7" class="px-5 py-8 text-center text-muted-foreground">Loading tokens...</td>
             </tr>
             <tr v-else-if="tokens.length === 0">
-              <td colspan="6" class="px-5 py-10 text-center text-muted-foreground">
+              <td colspan="7" class="px-5 py-10 text-center text-muted-foreground">
                 No access tokens created yet.
               </td>
             </tr>
@@ -175,6 +215,9 @@ onMounted(loadData)
                   {{ tok.name }}
                 </div>
                 <div class="font-mono text-xs text-muted-foreground">{{ tok.prefix }}••••••••</div>
+              </td>
+              <td class="px-4 py-3.5 text-xs">
+                <span class="rounded bg-muted px-2 py-0.5 text-foreground">{{ ownerName(tok) }}</span>
               </td>
               <td class="px-4 py-3.5 text-xs">
                 <span v-if="tok.registry_slug" class="font-mono rounded bg-muted px-2 py-0.5">
@@ -231,6 +274,18 @@ onMounted(loadData)
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Token Name</label>
           <UiInput v-model="form.name" placeholder="e.g. flutter-ci" required />
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium">Token Owner</label>
+          <UiSelect
+            v-model="form.user_id"
+            :options="ownerOptions"
+            aria-label="Token owner"
+          />
+          <p class="text-[11px] text-muted-foreground">
+            Issue the token on behalf of another account, for example to provision a CI job.
+          </p>
         </div>
 
         <div class="space-y-1.5">
