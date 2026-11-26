@@ -513,25 +513,34 @@ onMounted(loadSettings)
     </form>
 
     <!-- Apply base settings to existing registries -->
-    <UiDialog
-      :open="applyOpen"
-      title="Apply base Flutter Storage settings"
-      description="Preview exactly which fields change per registry before writing anything."
-      max-width-class="max-w-3xl"
-      @close="applyOpen = false"
-    >
-      <div class="space-y-4">
-        <SharedErrorBanner :message="applyError" />
+    <UiDialog :open="applyOpen" @update:open="(v) => (applyOpen = v)">
+      <UiDialogContent class="sm:max-w-3xl">
+        <UiDialogHeader>
+          <UiDialogTitle>Apply base Flutter Storage settings</UiDialogTitle>
+          <UiDialogDescription>
+            Preview exactly which fields change per registry before writing anything.
+          </UiDialogDescription>
+        </UiDialogHeader>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="space-y-1.5">
-            <label class="text-xs font-medium">Apply mode</label>
-            <UiSelect
-              v-model="applyMode"
-              :options="applyModeOptions"
-              aria-label="Apply mode"
-              @change="runApply(true)"
-            />
+        <div class="space-y-4">
+          <SharedErrorBanner :message="applyError" />
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">Apply mode</label>
+              <UiSelect
+                v-model="applyMode"
+                @update:model-value="runApply(true)"
+              >
+                <UiSelectTrigger aria-label="Apply mode">
+                  <UiSelectValue />
+                </UiSelectTrigger>
+                <UiSelectContent>
+                  <UiSelectItem v-for="opt in applyModeOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </UiSelectItem>
+                </UiSelectContent>
+              </UiSelect>
             <p class="text-[11px] text-muted-foreground">
               {{
                 applyMode === 'fill-missing'
@@ -633,8 +642,7 @@ onMounted(loadSettings)
         </div>
       </div>
 
-      <template #footer>
-        <div class="flex items-center justify-end gap-2 w-full">
+        <UiDialogFooter>
           <UiButton type="button" variant="ghost" @click="applyOpen = false">Close</UiButton>
           <UiButton
             type="button"
@@ -644,8 +652,8 @@ onMounted(loadSettings)
           >
             {{ applyBusy ? 'Applying…' : `Apply to ${applyTotals.changed} registr${applyTotals.changed === 1 ? 'y' : 'ies'}` }}
           </UiButton>
-        </div>
-      </template>
+        </UiDialogFooter>
+      </UiDialogContent>
     </UiDialog>
 
     <!-- Live Upstream Connectivity Tester -->

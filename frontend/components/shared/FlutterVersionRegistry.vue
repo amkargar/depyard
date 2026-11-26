@@ -34,7 +34,7 @@ const loading = ref(true)
 const errorMsg = ref('')
 const data = ref<FlutterVersionRegistry | null>(null)
 const search = ref('')
-const channelFilter = ref('')
+const channelFilter = ref('__all__')
 const expanded = ref<string | null>(null)
 const copiedKey = ref('')
 
@@ -63,14 +63,14 @@ const channels = computed(() => {
 })
 
 const channelOptions = computed(() => [
-  { value: '', label: 'All Channels' },
+  { value: '__all__', label: 'All Channels' },
   ...channels.value.map((ch) => ({ value: ch, label: ch })),
 ])
 
 const filtered = computed<FlutterVersionEntry[]>(() => {
   const q = search.value.trim().toLowerCase()
   return (data.value?.versions || []).filter((v) => {
-    if (channelFilter.value && v.channel !== channelFilter.value) return false
+    if (channelFilter.value && channelFilter.value !== '__all__' && v.channel !== channelFilter.value) return false
     if (!q) return true
     return (
       v.version.toLowerCase().includes(q) ||
@@ -215,12 +215,16 @@ onMounted(load)
           <Search class="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <UiInput v-model="search" placeholder="Filter by version, Dart SDK, or commit hash..." class="pl-9" />
         </form>
-        <UiSelect
-          v-model="channelFilter"
-          class="w-40"
-          :options="channelOptions"
-          aria-label="Filter by channel"
-        />
+        <UiSelect v-model="channelFilter">
+          <UiSelectTrigger class="w-40" aria-label="Filter by channel">
+            <UiSelectValue placeholder="All Channels" />
+          </UiSelectTrigger>
+          <UiSelectContent>
+            <UiSelectItem v-for="opt in channelOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </UiSelectItem>
+          </UiSelectContent>
+        </UiSelect>
         <span class="text-xs text-muted-foreground">
           {{ filtered.length }} of {{ data.total_versions }} versions
         </span>

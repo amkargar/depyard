@@ -11,12 +11,12 @@ const entries = ref<AuditEntry[]>([])
 const total = ref(0)
 const page = ref(1)
 const limit = 25
-const registryFilter = ref('')
-const actionFilter = ref('')
+const registryFilter = ref('__all__')
+const actionFilter = ref('__all__')
 const registries = ref<RegistryInstance[]>([])
 
 const registryOptions = computed(() => [
-  { value: '', label: 'All Registries' },
+  { value: '__all__', label: 'All Registries' },
   ...registries.value.map((r) => ({ value: r.id, label: `${r.name} (${r.slug})` })),
 ])
 
@@ -38,7 +38,7 @@ const AUDIT_ACTIONS = [
 ]
 
 const actionOptions = computed(() => [
-  { value: '', label: 'All Actions' },
+  { value: '__all__', label: 'All Actions' },
   ...AUDIT_ACTIONS.map((a) => ({ value: a, label: a })),
 ])
 
@@ -50,8 +50,8 @@ async function loadData() {
       limit: String(limit),
       offset: String((page.value - 1) * limit),
     })
-    if (registryFilter.value) params.set('registry_id', registryFilter.value)
-    if (actionFilter.value) params.set('action', actionFilter.value)
+    if (registryFilter.value && registryFilter.value !== '__all__') params.set('registry_id', registryFilter.value)
+    if (actionFilter.value && actionFilter.value !== '__all__') params.set('action', actionFilter.value)
 
     const [logRes, regRes] = await Promise.all([
       apiFetch<{ entries: AuditEntry[]; total: number }>(`/api/admin/audit-logs?${params.toString()}`),
@@ -88,19 +88,31 @@ onMounted(loadData)
     <div class="flex flex-wrap items-center gap-3">
       <UiSelect
         v-model="registryFilter"
-        class="w-56"
-        :options="registryOptions"
-        aria-label="Filter by registry"
         @update:model-value="() => { page = 1; loadData() }"
-      />
+      >
+        <UiSelectTrigger class="w-56" aria-label="Filter by registry">
+          <UiSelectValue placeholder="All Registries" />
+        </UiSelectTrigger>
+        <UiSelectContent>
+          <UiSelectItem v-for="opt in registryOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </UiSelectItem>
+        </UiSelectContent>
+      </UiSelect>
 
       <UiSelect
         v-model="actionFilter"
-        class="w-48"
-        :options="actionOptions"
-        aria-label="Filter by action"
         @update:model-value="() => { page = 1; loadData() }"
-      />
+      >
+        <UiSelectTrigger class="w-48" aria-label="Filter by action">
+          <UiSelectValue placeholder="All Actions" />
+        </UiSelectTrigger>
+        <UiSelectContent>
+          <UiSelectItem v-for="opt in actionOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </UiSelectItem>
+        </UiSelectContent>
+      </UiSelect>
     </div>
 
     <SharedErrorBanner :message="errorMsg" />

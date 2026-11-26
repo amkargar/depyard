@@ -110,10 +110,10 @@ async function revertFieldToBase(key: string) {
 // Artifacts tab state
 const artLoading = ref(false)
 const artSearch = ref('')
-const artOrigin = ref('')
+const artOrigin = ref('__all__')
 
 const artifactOriginOptions = computed(() => [
-  { value: '', label: 'All Origins' },
+  { value: '__all__', label: 'All Origins' },
   { value: 'hosted', label: 'Hosted' },
   { value: 'cached', label: 'Cached' },
 ])
@@ -169,7 +169,7 @@ async function loadArtifacts() {
       limit: '20',
     })
     if (artSearch.value.trim()) params.set('search', artSearch.value.trim())
-    if (artOrigin.value) params.set('origin', artOrigin.value)
+    if (artOrigin.value && artOrigin.value !== '__all__') params.set('origin', artOrigin.value)
     artifacts.value = await apiFetch<ArtifactPage>(
       `/api/admin/registries/${reg.value.id}/artifacts?${params.toString()}`,
     )
@@ -600,11 +600,17 @@ onMounted(async () => {
           </form>
           <UiSelect
             v-model="artOrigin"
-            class="w-40"
-            :options="artifactOriginOptions"
-            aria-label="Filter artifacts by origin"
             @update:model-value="() => { artPage = 1; loadArtifacts() }"
-          />
+          >
+            <UiSelectTrigger class="w-40" aria-label="Filter artifacts by origin">
+              <UiSelectValue placeholder="All Origins" />
+            </UiSelectTrigger>
+            <UiSelectContent>
+              <UiSelectItem v-for="opt in artifactOriginOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </UiSelectItem>
+            </UiSelectContent>
+          </UiSelect>
           <UiButton variant="outline" size="sm" @click="loadArtifacts">Refresh</UiButton>
         </div>
 

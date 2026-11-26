@@ -504,39 +504,50 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <UiDialog
-    :open="open"
-    :title="editing ? `Configure ${editing.name}` : 'Create Registry Instance'"
-    description="Changes apply live to protocol routing, upstream connections, and caching without restarting the server."
-    max-width-class="max-w-3xl"
-    @close="emit('close')"
-  >
-    <form id="registry-form" class="space-y-5" @submit.prevent="handleSubmit">
-      <SharedErrorBanner :message="errorMsg" />
+  <UiDialog :open="open" @update:open="(v) => { if (!v) emit('close') }">
+    <UiDialogContent class="sm:max-w-3xl">
+      <UiDialogHeader>
+        <UiDialogTitle>{{ editing ? `Configure ${editing.name}` : 'Create Registry Instance' }}</UiDialogTitle>
+        <UiDialogDescription>
+          Changes apply live to protocol routing, upstream connections, and caching without restarting the server.
+        </UiDialogDescription>
+      </UiDialogHeader>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium text-foreground">Registry Type</label>
-          <UiSelect
-            v-model="form.type"
-            :disabled="Boolean(editing)"
-            :options="typeOptions"
-            aria-label="Registry type"
-          />
-          <p class="text-[11px] text-muted-foreground">
-            Only registry types compiled into this server are selectable.
-          </p>
-        </div>
+      <form id="registry-form" class="space-y-5" @submit.prevent="handleSubmit">
+        <SharedErrorBanner :message="errorMsg" />
 
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium text-foreground">Repository Mode</label>
-          <UiSelect
-            v-model="form.mode"
-            :options="modeOptions"
-            aria-label="Repository mode"
-          />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">Registry Type</label>
+            <UiSelect v-model="form.type" :disabled="Boolean(editing)">
+              <UiSelectTrigger aria-label="Registry type">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in typeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+            <p class="text-[11px] text-muted-foreground">
+              Only registry types compiled into this server are selectable.
+            </p>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium text-foreground">Repository Mode</label>
+            <UiSelect v-model="form.mode">
+              <UiSelectTrigger aria-label="Repository mode">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in modeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
+          </div>
         </div>
-      </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="space-y-1.5">
@@ -629,11 +640,16 @@ async function handleSubmit() {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div class="space-y-1">
             <label class="text-xs font-medium">Authentication Mode</label>
-            <UiSelect
-              v-model="form.upstream_auth_type"
-              :options="upstreamAuthOptions"
-              aria-label="Upstream authentication type"
-            />
+            <UiSelect v-model="form.upstream_auth_type">
+              <UiSelectTrigger aria-label="Upstream authentication type">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in upstreamAuthOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
           </div>
 
           <div v-if="form.upstream_auth_type === 'basic'" class="space-y-1">
@@ -729,11 +745,16 @@ async function handleSubmit() {
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
         <div class="space-y-1.5">
           <label class="text-xs font-medium text-foreground">Visibility</label>
-          <UiSelect
-            v-model="form.visibility"
-            :options="visibilityOptions"
-            aria-label="Registry visibility"
-          />
+          <UiSelect v-model="form.visibility">
+            <UiSelectTrigger aria-label="Registry visibility">
+              <UiSelectValue />
+            </UiSelectTrigger>
+            <UiSelectContent>
+              <UiSelectItem v-for="opt in visibilityOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </UiSelectItem>
+            </UiSelectContent>
+          </UiSelect>
         </div>
 
         <div class="space-y-1.5">
@@ -786,11 +807,16 @@ async function handleSubmit() {
           </div>
           <div class="space-y-1">
             <label class="text-xs text-muted-foreground">Eviction Policy</label>
-            <UiSelect
-              v-model="form.eviction_policy"
-              :options="evictionPolicyOptions"
-              aria-label="Cache eviction policy"
-            />
+            <UiSelect v-model="form.eviction_policy">
+              <UiSelectTrigger aria-label="Cache eviction policy">
+                <UiSelectValue />
+              </UiSelectTrigger>
+              <UiSelectContent>
+                <UiSelectItem v-for="opt in evictionPolicyOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </UiSelectItem>
+              </UiSelectContent>
+            </UiSelect>
           </div>
         </div>
       </div>
@@ -858,7 +884,7 @@ async function handleSubmit() {
               <UiInput
                 :model-value="getListConfigString(hint.key)"
                 placeholder="Comma-separated values"
-                @update:model-value="(v) => setListConfigString(hint.key, v)"
+                @update:model-value="(v) => setListConfigString(hint.key, String(v))"
               />
               <p v-if="hint.description" class="text-[11px] text-muted-foreground">{{ hint.description }}</p>
             </template>
@@ -877,7 +903,7 @@ async function handleSubmit() {
               <label class="text-xs font-medium">{{ hint.label }}</label>
               <UiInput
                 :model-value="form.config[hint.key] ?? ''"
-                @update:model-value="(v) => (form.config[hint.key] = v)"
+                @update:model-value="(v) => (form.config[hint.key] = String(v))"
               />
               <p v-if="hint.description" class="text-[11px] text-muted-foreground">{{ hint.description }}</p>
             </template>
@@ -886,11 +912,12 @@ async function handleSubmit() {
       </div>
     </form>
 
-    <template #footer>
-      <UiButton variant="outline" @click="emit('close')">Cancel</UiButton>
-      <UiButton type="submit" form="registry-form" :disabled="saving">
-        {{ saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Registry' }}
-      </UiButton>
-    </template>
+      <UiDialogFooter>
+        <UiButton variant="outline" @click="emit('close')">Cancel</UiButton>
+        <UiButton type="submit" form="registry-form" :disabled="saving">
+          {{ saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Registry' }}
+        </UiButton>
+      </UiDialogFooter>
+    </UiDialogContent>
   </UiDialog>
 </template>
