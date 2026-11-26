@@ -204,7 +204,13 @@ jobs:
              \`\`\`bash
              HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
              \`\`\`
-          3. Open \`http://localhost:8080\` (default admin: \`admin\` / \`changeme123\`).
+          3. Read the generated administrator password once from the log:
+             \`\`\`bash
+             docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
+             \`\`\`
+             To choose your own instead, set it before starting (12+ characters):
+             \`ADMIN_PASSWORD='your-strong-password' HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d\`
+          4. Open \`http://localhost:8080\` and sign in as \`admin\`.`
 
           ### Quick Start Using the Release Image Archive (Offline / No GHCR Login)
           1. Download \`docker-compose.release.yml\` and the image archive matching your PC from **Assets**:

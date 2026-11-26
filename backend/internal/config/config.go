@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/amkargar/mirror-registry/backend/internal/auth"
 )
 
 // Config holds application-level configuration.
@@ -40,6 +42,7 @@ type Config struct {
 	AdminUsername             string
 	AdminPassword             string
 	AdminEmail                string
+	MinPasswordLength         int
 	SessionTTL                time.Duration
 	CacheEvictionInterval     time.Duration
 	HealthCheckInterval       time.Duration
@@ -80,8 +83,9 @@ func Load() Config {
 		DefaultPyPIMode:           getEnv("DEFAULT_PYPI_MODE", "hybrid"),
 		UpstreamProxyURL:          getEnv("UPSTREAM_PROXY_URL", ""),
 		AdminUsername:             getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:             getEnv("ADMIN_PASSWORD", "admin123"),
+		AdminPassword:             strings.TrimSpace(os.Getenv("ADMIN_PASSWORD")),
 		AdminEmail:                getEnv("ADMIN_EMAIL", "admin@localhost"),
+		MinPasswordLength:         getEnvInt("MIN_PASSWORD_LENGTH", auth.DefaultMinPasswordLength),
 		SessionTTL:                getEnvDuration("SESSION_TTL", 24*time.Hour),
 		CacheEvictionInterval:     getEnvDuration("CACHE_EVICTION_INTERVAL", 5*time.Minute),
 		HealthCheckInterval:       getEnvDuration("HEALTH_CHECK_INTERVAL", 2*time.Minute),
@@ -97,6 +101,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return fallback
+	}
+	return n
 }
 
 func getEnvBool(key string, fallback bool) bool {

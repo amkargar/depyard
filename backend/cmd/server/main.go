@@ -22,8 +22,8 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/pypi"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
+	"github.com/amkargar/mirror-registry/backend/internal/registry/pypi"
 	"github.com/amkargar/mirror-registry/backend/internal/server"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
 	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
@@ -128,17 +128,34 @@ func main() {
 	cacheCoord := cache.NewCoordinator(storageSvc)
 	upstreamClient := upstream.NewClient(cfg.UpstreamDefaultTimeout)
 	authSvc := auth.NewService(authStore, cfg.SessionTTL)
+	authSvc.SetMinPasswordLength(cfg.MinPasswordLength)
 	metricsCol := metrics.NewCollector(metricsStore)
 	auditSvc := audit.NewService(auditStore)
 
-	// Bootstrap default admin account on first startup
-	createdAdmin, err := authSvc.EnsureBootstrapAdmin(ctx, cfg.AdminUsername, cfg.AdminEmail, cfg.AdminPassword)
+	// Bootstrap default admin account on first startup.
+	//
+	// When no ADMIN_PASSWORD is configured we generate a strong random one and
+	// print it once, instead of shipping a well-known default credential that
+	// operators are likely to forget to change.
+	adminPassword := cfg.AdminPassword
+	generatedPassword := false
+	if adminPassword == "" {
+		adminPassword = auth.GeneratePassword(24)
+		generatedPassword = true
+	}
+	createdAdmin, err := authSvc.EnsureBootstrapAdmin(ctx, cfg.AdminUsername, cfg.AdminEmail, adminPassword)
 	if err != nil {
 		logger.Error("failed to bootstrap admin account", "error", err)
 		os.Exit(1)
 	}
 	if createdAdmin {
 		logger.Info("bootstrapped initial admin user", "username", cfg.AdminUsername)
+		if generatedPassword {
+			logger.Warn("no ADMIN_PASSWORD configured: a password was generated for the initial admin account",
+				"username", cfg.AdminUsername,
+				"password", adminPassword,
+				"note", "this password is shown only once - store it now and change it after signing in")
+		}
 	}
 
 	// Composition root: register compiled registry types.
