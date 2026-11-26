@@ -63,6 +63,32 @@ Nginx serves as the single public entrypoint (default port `80`, override with `
 - **Web UI & Registry Endpoint**: `http://localhost` (or `http://localhost:<HTTP_PORT>`)
 - On first startup with an empty database, both `pub-public` (`PUB_HOSTED_URL`) and `flutter-storage` (`FLUTTER_STORAGE_BASE_URL`) are seeded automatically.
 
+### Signing in for the first time
+
+There is no default password. On the very first start the backend creates the
+administrator account and either uses `ADMIN_PASSWORD` if you set it, or
+generates a random one and prints it **once** in the log:
+
+```bash
+# 1. Start the stack
+HTTP_PORT=8080 docker compose up --build -d
+
+# 2. Read the generated administrator password (only appears on first boot)
+docker compose logs backend | grep "generated for the initial admin"
+
+#    ...or, to choose your own password instead, set it before the first start
+#    (minimum 12 characters):
+#    ADMIN_PASSWORD='your-strong-password' HTTP_PORT=8080 docker compose up --build -d
+```
+
+Open `http://localhost:8080`, sign in as `admin` with that password, then change
+it from **My Account → Profile**. Keep the log line out of shared/CI logs until
+you have done so.
+
+If you ever lose the password: a fresh database bootstraps a new administrator;
+for an existing database, sign in as another administrator and reset it from
+**Admin Console → Users**.
+
 ## Creating & Managing Admin Users
 
 There are three ways to create an administrator account:
@@ -161,7 +187,13 @@ docker load -i mirror-registry-images-v1.0.0-linux-amd64.tar.gz
 HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
 ```
 
-Then open `http://localhost:8080`.
+Then open `http://localhost:8080` and sign in as `admin`. Read the generated
+password once from the log (or set `ADMIN_PASSWORD` to 12+ characters before the
+first start):
+
+```bash
+docker compose -f docker-compose.release.yml logs backend | grep "generated for the initial admin"
+```
 
 ## Using with Dart & Flutter
 
@@ -339,6 +371,13 @@ MONGODB_URI="mongodb://localhost:27017" go run ./cmd/server
 # Or standalone in-memory mode for quick local UI testing:
 STORAGE_BACKEND=memory SEED_DEMO_PACKAGES=true go run ./cmd/server
 ```
+
+The first start creates the administrator and prints a generated password on the
+`no ADMIN_PASSWORD configured` warning line — copy it and sign in at
+`http://localhost:3000/login` (the Nuxt dev server proxies `/api` to the
+backend). In-memory mode starts from an empty database every run, so that line
+reappears on each restart; with MongoDB the account persists and the
+password is only generated once.
 
 ### Frontend
 
