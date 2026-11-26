@@ -31,6 +31,11 @@ type Config struct {
 	DefaultGoSlug             string
 	DefaultGoName             string
 	DefaultGoUpstreamURL      string
+	SeedPyPI                  bool
+	DefaultPyPISlug           string
+	DefaultPyPIName           string
+	DefaultPyPIUpstreamURL    string
+	DefaultPyPIMode           string
 	UpstreamProxyURL          string
 	AdminUsername             string
 	AdminPassword             string
@@ -68,6 +73,11 @@ func Load() Config {
 		DefaultGoSlug:             getEnv("DEFAULT_GO_SLUG", "go-proxy"),
 		DefaultGoName:             getEnv("DEFAULT_GO_NAME", "Go Module Proxy"),
 		DefaultGoUpstreamURL:      getEnv("DEFAULT_GO_UPSTREAM_URL", "https://proxy.golang.org"),
+		SeedPyPI:                  getEnvBool("SEED_PYPI", true),
+		DefaultPyPISlug:           getEnv("DEFAULT_PYPI_SLUG", "python-packages"),
+		DefaultPyPIName:           getEnv("DEFAULT_PYPI_NAME", "Python Package Index"),
+		DefaultPyPIUpstreamURL:    getEnv("DEFAULT_PYPI_UPSTREAM_URL", "https://pypi.org"),
+		DefaultPyPIMode:           getEnv("DEFAULT_PYPI_MODE", "hybrid"),
 		UpstreamProxyURL:          getEnv("UPSTREAM_PROXY_URL", ""),
 		AdminUsername:             getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:             getEnv("ADMIN_PASSWORD", "admin123"),

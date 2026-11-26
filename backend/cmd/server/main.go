@@ -22,6 +22,7 @@ import (
 	"github.com/amkargar/mirror-registry/backend/internal/registry"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
+	"github.com/amkargar/mirror-registry/backend/internal/registry/pypi"
 	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
 	"github.com/amkargar/mirror-registry/backend/internal/server"
 	"github.com/amkargar/mirror-registry/backend/internal/storage"
@@ -49,6 +50,7 @@ func main() {
 		pubStore      pub.MetadataStore
 		flutterStore  flutter.MetadataStore
 		goStore       goproxy.MetadataStore
+		pypiStore     pypi.MetadataStore
 		closeStore    func(context.Context) error
 	)
 
@@ -64,6 +66,7 @@ func main() {
 		pubStore = pub.NewMemoryStore()
 		flutterStore = flutter.NewMemoryStore()
 		goStore = goproxy.NewMemoryStore()
+		pypiStore = pypi.NewMemoryStore()
 	} else {
 		mongoDB, err := mongostore.Connect(ctx, cfg.MongoURI, cfg.MongoDatabase)
 		if err != nil {
@@ -98,6 +101,13 @@ func main() {
 			os.Exit(1)
 		}
 		goStore = gs
+
+		ps2, err := pypi.NewMongoStore(ctx, mongoDB.Database())
+		if err != nil {
+			logger.Error("failed to initialize pypi metadata store", "error", err)
+			os.Exit(1)
+		}
+		pypiStore = ps2
 		logger.Info("connected to MongoDB", "database", cfg.MongoDatabase)
 	}
 	if closeStore != nil {
@@ -156,6 +166,10 @@ func main() {
 	}
 	if err := regManager.RegisterType(goproxy.Registration(goStore)); err != nil {
 		logger.Error("failed to register go module proxy registry type", "error", err)
+		os.Exit(1)
+	}
+	if err := regManager.RegisterType(pypi.Registration(pypiStore)); err != nil {
+		logger.Error("failed to register pypi registry type", "error", err)
 		os.Exit(1)
 	}
 
@@ -220,6 +234,34 @@ func main() {
 					logger.Warn("could not seed default go proxy instance", "error", goErr)
 				} else {
 					logger.Info("seeded default go proxy instance", "slug", goInst.Slug, "type", goInst.Type, "mode", goInst.Mode)
+				}
+			}
+
+			if cfg.SeedPyPI {
+				pyInst, pyErr := regManager.CreateInstance(ctx, &registry.Instance{
+					Name:        cfg.DefaultPyPIName,
+					Slug:        cfg.DefaultPyPISlug,
+					Type:        pypi.RegistryType,
+					Description: "Python Package Index mirror (PEP 503 Simple Repository API) with Twine-compatible publishing.",
+					Enabled:     true,
+					Mode:        registry.RepositoryMode(cfg.DefaultPyPIMode),
+					UpstreamURL: cfg.DefaultPyPIUpstreamURL,
+					Visibility:  registry.VisibilityPublic,
+					AuthPolicy: registry.AuthPolicy{
+						AllowAnonymousRead: true,
+						RequireAuthPublish: true,
+					},
+					CachePolicy: registry.DefaultCachePolicy(),
+					Config: map[string]any{
+						"upstream_timeout_seconds": 60,
+						"include_prerelease":       false,
+					},
+					IsDefault: true,
+				})
+				if pyErr != nil {
+					logger.Warn("could not seed default pypi instance", "error", pyErr)
+				} else {
+					logger.Info("seeded default pypi instance", "slug", pyInst.Slug, "type", pyInst.Type, "mode", pyInst.Mode)
 				}
 			}
 
