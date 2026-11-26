@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Trash2, ExternalLink } from 'lucide-vue-next'
 import type { ArtifactDescriptor } from '~/types/registry'
-import { formatBytes, formatRelative } from '~/utils/format'
+import { formatBytes, formatRelative, encodePathSegments } from '~/utils/format'
 import { getRegistryExplorer } from '~/utils/registryExplorers'
 
 const props = defineProps<{
@@ -72,7 +72,7 @@ const hasDetailPage = computed(() => {
             <div class="inline-flex items-center gap-1">
               <NuxtLink
                 v-if="hasDetailPage"
-                :to="`/explore/${registrySlug}/packages/${encodeURIComponent(item.name)}`"
+                :to="`/explore/${registrySlug}/packages/${encodePathSegments(item.name)}`"
                 class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                 title="View in Explorer"
               >
