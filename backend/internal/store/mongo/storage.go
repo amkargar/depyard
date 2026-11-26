@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/storage"
 )
 
 func (s *Store) UpsertBlob(ctx context.Context, blob *storage.Blob) error {

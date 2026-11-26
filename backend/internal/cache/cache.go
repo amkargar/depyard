@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/storage"
 )
 
 // Coordinator provides ecosystem-agnostic concurrent download deduplication

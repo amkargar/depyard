@@ -13,23 +13,23 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/cache"
-	"github.com/amkargar/mirror-registry/backend/internal/config"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/pypi"
-	"github.com/amkargar/mirror-registry/backend/internal/server"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
-	mongostore "github.com/amkargar/mirror-registry/backend/internal/store/mongo"
-	"github.com/amkargar/mirror-registry/backend/internal/tasks"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/config"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry/flutter"
+	"github.com/amkargar/depyard/backend/internal/registry/goproxy"
+	"github.com/amkargar/depyard/backend/internal/registry/pub"
+	"github.com/amkargar/depyard/backend/internal/registry/pypi"
+	"github.com/amkargar/depyard/backend/internal/server"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
+	mongostore "github.com/amkargar/depyard/backend/internal/store/mongo"
+	"github.com/amkargar/depyard/backend/internal/tasks"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 func main() {
@@ -389,14 +389,14 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
-		logger.Info("shutting down mirror-registry server...")
+		logger.Info("shutting down depyard server...")
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutCancel()
 		_ = metricsCol.Flush(shutCtx)
 		_ = httpServer.Shutdown(shutCtx)
 	}()
 
-	logger.Info("mirror-registry listening",
+	logger.Info("depyard listening",
 		"addr", cfg.ListenAddr,
 		"installed_types", len(regManager.ListTypes()),
 		"root_compat_route", defaultSettings.EnableRootCompatRoute,
@@ -460,7 +460,7 @@ func seedDemoData(ctx context.Context, logger *slog.Logger, manager *registry.Ma
 			versions:    []string{"1.0.0", "1.1.0", "1.2.0"},
 			description: "Composable Flutter UI primitives, adaptive theming, and accessible design tokens for multi-platform apps.",
 			repo:        "https://github.com/acme/acme_design_kit",
-			readme:      "# acme_design_kit\n\nA lightweight, composable Flutter design system hosted on your private Mirror Registry.\n\n## Features\n\n- Zero external native dependencies\n- Light & dark semantic token palettes\n- Responsive layout primitives for mobile, desktop, and web\n\n## Quick Start\n\n```dart\nimport 'package:acme_design_kit/acme_design_kit.dart';\n\nfinal theme = AcmeTheme.light();\n```\n",
+			readme:      "# acme_design_kit\n\nA lightweight, composable Flutter design system hosted on your private Depyard.\n\n## Features\n\n- Zero external native dependencies\n- Light & dark semantic token palettes\n- Responsive layout primitives for mobile, desktop, and web\n\n## Quick Start\n\n```dart\nimport 'package:acme_design_kit/acme_design_kit.dart';\n\nfinal theme = AcmeTheme.light();\n```\n",
 			changelog:   "## 1.2.0\n\n- Added adaptive navigation rail and high-contrast surface tokens.\n\n## 1.1.0\n\n- Improved keyboard focus rings across form inputs.\n\n## 1.0.0\n\n- Initial internal release.\n",
 		},
 		{

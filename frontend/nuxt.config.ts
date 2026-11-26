@@ -12,7 +12,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Mirror Registry',
+      title: 'Depyard',
       link: [
         // Self-hosted Roboto (SIL OFL 1.1) — see /public/fonts/roboto/OFL.txt
         {

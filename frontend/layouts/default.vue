@@ -14,7 +14,7 @@ onMounted(() => refresh())
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[#122030] text-sky-400">
               <Boxes class="h-4 w-4" />
             </div>
-            <span>Mirror Registry</span>
+            <span>Depyard</span>
           </NuxtLink>
 
           <nav class="hidden sm:flex items-center gap-1">
@@ -65,7 +65,7 @@ onMounted(() => refresh())
 
     <footer class="border-t bg-card/50 py-6 text-xs text-muted-foreground">
       <div class="mx-auto max-w-6xl px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <span>Mirror Registry — Self-hosted Multi-Format Package &amp; Artifact Registry Platform</span>
+        <span>Depyard — Self-hosted Multi-Format Package &amp; Artifact Registry Platform</span>
         <span class="font-mono text-[11px]">Multi-registry routing: /r/&lt;slug&gt;</span>
       </div>
     </footer>

@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/cache"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 // Runner executes lightweight periodic shared maintenance tasks.

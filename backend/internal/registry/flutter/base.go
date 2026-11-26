@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 // BaseUpstreamKey is a base-only key holding the default repository root used when a new registry

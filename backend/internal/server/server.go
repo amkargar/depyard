@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 // Server routes incoming HTTP traffic to the Admin API, public directory,

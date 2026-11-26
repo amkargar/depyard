@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
 )
 
 const testPassword = "correct-horse-battery"

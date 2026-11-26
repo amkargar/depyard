@@ -1,4 +1,4 @@
-# Mirror Registry
+# Depyard
 
 A lightweight, extensible, self-hosted, multi-format package and artifact registry platform built with Go, MongoDB, and Nuxt 3 (shadcn-vue + Tailwind CSS + TypeScript).
 
@@ -162,11 +162,15 @@ curl -sS -X POST http://localhost/api/admin/users \
   }'
 ```
 
+## Migrating from Mirror Registry
+
+Existing installations retain the MongoDB database name `mirror_registry`, volume keys and existing authentication identifiers. If you rename the local checkout directory, keep the original Compose project name (for example, `export COMPOSE_PROJECT_NAME=mirror-registry`) to continue using the same volumes. Do not run `docker compose down -v`. Update the stored site title to Depyard in Admin → Settings if it still displays the old name. New GHCR images are published under `ghcr.io/amkargar/depyard-backend` and `ghcr.io/amkargar/depyard-nginx` after a new release; older images remain under the old prefix. The existing `MIRROR_REGISTRY_TAG` environment variable is retained for compatibility.
+
 ## Running Pre-Built Release Images (No Build Required)
 
 Tagging a release (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or running the **Release Container Images** workflow manually in GitHub Actions automatically:
 1. Verifies Go tests and frontend typecheck.
-2. Builds and pushes multi-arch (`linux/amd64`, `linux/arm64`) images to GHCR (`ghcr.io/amkargar/mirror-registry-backend` and `ghcr.io/amkargar/mirror-registry-nginx`).
+2. Builds and pushes multi-arch (`linux/amd64`, `linux/arm64`) images to GHCR (`ghcr.io/amkargar/depyard-backend` and `ghcr.io/amkargar/depyard-nginx`).
 3. Publishes a GitHub Release with downloadable `.tar.gz` image archives (`linux-amd64` and `linux-arm64`), a pinned `docker-compose.release.yml`, and `SHA256SUMS.txt`.
 
 ### Option A: Pull directly from GHCR
@@ -183,7 +187,7 @@ Download `docker-compose.release.yml` and the matching `.tar.gz` archive from th
 
 ```bash
 # Intel/AMD PC (Windows/Linux/Intel Mac) — use linux-arm64 on Apple Silicon Macs
-docker load -i mirror-registry-images-v1.0.0-linux-amd64.tar.gz
+docker load -i depyard-images-v1.0.0-linux-amd64.tar.gz
 HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
 ```
 
@@ -199,7 +203,7 @@ To move to a newer version later, see [Upgrading to a New Version](#upgrading-to
 
 ## Upgrading to a New Version
 
-Images are published to GHCR as `ghcr.io/<owner>/mirror-registry-backend` and
+Images are published to GHCR as `ghcr.io/<owner>/depyard-backend` and
 `-nginx` for `linux/amd64` and `linux/arm64`, tagged with the release tag and
 `latest`. Each release page also attaches the image archives and a
 `docker-compose.release.yml` whose default tag is pinned to that release.
@@ -230,7 +234,7 @@ unavailable only for the few seconds until the new healthcheck passes.
 
 ```bash
 # Intel/AMD — use the arm64 archive on Apple Silicon or ARM servers
-docker load -i mirror-registry-images-vX.Y.Z-linux-amd64.tar.gz
+docker load -i depyard-images-vX.Y.Z-linux-amd64.tar.gz
 
 export MIRROR_REGISTRY_TAG=vX.Y.Z
 docker compose -f docker-compose.release.yml up -d
@@ -320,7 +324,7 @@ TOKEN=$(curl -s -X POST http://localhost/api/admin/auth/login \
 # Save the base settings (validated by the same strict parser the runtime uses)
 curl -s -X PUT http://localhost/api/admin/settings \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
-    "site_title": "Mirror Registry",
+    "site_title": "Depyard",
     "default_flutter_storage_url": "https://storage.flutter-io.cn",
     "flutter_base_config_mode": "inherit",
     "default_flutter_storage_config": {

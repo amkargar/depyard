@@ -3,7 +3,7 @@ package goproxy_test
 import (
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
+	"github.com/amkargar/depyard/backend/internal/registry/goproxy"
 )
 
 func TestGoVersionOrdering(t *testing.T) {

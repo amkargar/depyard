@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/config"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/config"
 )
 
 func TestAdminPasswordHasNoPredictableDefault(t *testing.T) {

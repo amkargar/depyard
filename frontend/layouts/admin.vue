@@ -83,7 +83,7 @@ async function handleLogout() {
           <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-[#122030] text-sky-400">
             <Boxes class="h-4 w-4" />
           </div>
-          <span>Mirror Registry</span>
+          <span>Depyard</span>
         </NuxtLink>
         <button type="button" class="lg:hidden p-1 text-muted-foreground" @click="mobileOpen = false">
           <X class="h-4 w-4" />

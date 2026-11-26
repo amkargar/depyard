@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/auth"
 )
 
 func TestGeneratePasswordIsRandomAndLongEnough(t *testing.T) {

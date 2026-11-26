@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/cache"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
-	"github.com/amkargar/mirror-registry/backend/internal/server"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry/flutter"
+	"github.com/amkargar/depyard/backend/internal/server"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 // baseSettingsHarness wires a full server with the live base-config provider, mirroring main.go.

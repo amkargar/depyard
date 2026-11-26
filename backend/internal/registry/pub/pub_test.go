@@ -6,7 +6,7 @@ import (
 	"compress/gzip"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
+	"github.com/amkargar/depyard/backend/internal/registry/pub"
 )
 
 func TestPubSemVerOrderingAndLatestSelection(t *testing.T) {

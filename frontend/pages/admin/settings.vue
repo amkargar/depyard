@@ -34,7 +34,7 @@ const testError = ref('')
 
 const form = reactive<PlatformSettings>({
   id: 'global',
-  site_title: 'Mirror Registry',
+  site_title: 'Depyard',
   public_base_url: '',
   enable_root_compat_route: true,
   audit_retention_days: 90,

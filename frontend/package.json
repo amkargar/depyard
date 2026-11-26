@@ -1,5 +1,5 @@
 {
-  "name": "mirror-registry-frontend",
+  "name": "depyard-frontend",
   "private": true,
   "type": "module",
   "scripts": {

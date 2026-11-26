@@ -161,7 +161,7 @@ Two points worth recording explicitly:
 
 - The first-run setup wizard (P1) — it depends on the admin-account work here,
   but it is a separate, larger feature.
-- Offline release bundles and the `mirror-registry` CLI (P1).
+- Offline release bundles and the `depyard` CLI (P1).
 - The diagnostics page (P2).
 - Registry-specific access grants — the review calls for them under P2/P3;
   the token scope model already provides the isolation primitive.
