@@ -173,9 +173,53 @@ A token can never grant more than the user who owns it:
 - A token whose owner account has been deleted no longer authenticates; the
   token is revoked automatically the first time it is presented.
 
-Administrators can still create tokens for any registry through the
-administrative API (`GET|POST /api/admin/tokens`, and the matching
-`revoke`/`DELETE` routes). Those endpoints remain administrator-only.
+## Administrator token access
+
+An administrator is also an ordinary account, so both views are available and
+they deliberately mean different things:
+
+| View | Who | Scope |
+|---|---|---|
+| `/tokens` (`/api/admin/my/tokens`) | every signed-in user, administrators included | **only the caller's own tokens** |
+| `/admin/tokens` (`/api/admin/tokens`) | administrators only | **every token on the platform** |
+
+The admin console shows a **My Account** section in the sidebar linking to
+*My Dashboard*, *My Profile* and *My Tokens*, so an administrator can change
+their own password and manage their own personal tokens without leaving the
+console or typing URLs by hand.
+
+The platform-wide *Access Tokens* page lists an **Owner** column, so an
+administrator reviewing tokens can tell whose token each row is. The owner is
+resolved from `user_id` against the user list; a token whose owner cannot be
+resolved is shown as `unknown`.
+
+### Issuing a token on behalf of another account
+
+`POST /api/admin/tokens` accepts an optional `user_id`. When it is present and
+differs from the caller, the token is issued to that account — useful for
+provisioning a CI job for a teammate. The owner must exist and must be enabled,
+otherwise the request fails with `400` (`selected user does not exist` /
+`selected user account is disabled`), because a token bound to a nonexistent or
+disabled account would be dead on arrival.
+
+The token then authenticates as **its owner**, not as the administrator who
+created it, and it is subject to that owner's permission ceiling. An
+administrator can therefore provision a token for a regular user, but cannot
+use this route to hand out privileges that the owner does not already hold.
+
+```json
+{ "name": "alice-ci", "user_id": "<user id>", "scopes": ["read", "publish"] }
+```
+
+Omitting `user_id` keeps the previous behaviour: the token belongs to the
+calling administrator.
+
+### Disabling an account
+
+Disabling a user blocks their sessions and their tokens immediately. Unlike
+deletion, disable is reversible: re-enabling the account restores access for
+any token that was not separately revoked. Use deletion when a credential must
+not come back.
 
 ## Registry isolation
 
@@ -213,7 +257,7 @@ These remain administrator-only and return `403 Forbidden` for regular users:
 | `PUT` | `/api/admin/users/{id}` | Edit username, email, role, status, or reset the password |
 | `DELETE` | `/api/admin/users/{id}` | Delete an account and revoke its credentials |
 | `GET` | `/api/admin/tokens` | List every token |
-| `POST` | `/api/admin/tokens` | Create a token for any account |
+| `POST` | `/api/admin/tokens` | Create a token; optional `user_id` issues it for another account |
 | `POST` | `/api/admin/tokens/{id}/revoke` | Revoke a token |
 | `DELETE` | `/api/admin/tokens/{id}` | Delete a token |
 

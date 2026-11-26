@@ -612,3 +612,152 @@ func TestMeEndpointReportsAuthenticationState(t *testing.T) {
 		t.Fatal("expected the user object to be returned for a signed-in regular user")
 	}
 }
+
+// --- Administrator token access ---
+
+// findUser resolves a username through the admin listing, which is the only
+// lookup the service exposes by name.
+func findUser(t *testing.T, svc *auth.Service, username string) *auth.User {
+	t.Helper()
+	users, err := svc.ListUsers(context.Background())
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	for _, u := range users {
+		if u.Username == username {
+			return u
+		}
+	}
+	t.Fatalf("user %q not found", username)
+	return nil
+}
+
+// TestAdminPersonalTokensStayOwnerScoped verifies that an administrator's
+// "my tokens" view only ever exposes their own tokens. The platform-wide list
+// is a separate, deliberately administrative view.
+func TestAdminPersonalTokensStayOwnerScoped(t *testing.T) {
+	srv, _ := newAuthHarness(t)
+
+	adminCookie := login(t, srv, "admin", authTestPassword)
+	memberCookie := login(t, srv, "member", authTestPassword)
+
+	// Each account creates one token.
+	for _, tc := range []struct {
+		name   string
+		cookie *http.Cookie
+		path   string
+	}{
+		{"admin-personal", adminCookie, "/api/admin/my/tokens"},
+		{"member-personal", memberCookie, "/api/admin/my/tokens"},
+	} {
+		status, body, _ := doJSON(t, srv, http.MethodPost, tc.path, map[string]any{
+			"name":   tc.name,
+			"scopes": []string{"read"},
+		}, tc.cookie, "")
+		if status != http.StatusCreated {
+			t.Fatalf("%s: expected 201, got %d (%v)", tc.name, status, body)
+		}
+	}
+
+	// The administrator's personal list contains only their own token.
+	status, body, _ := doJSON(t, srv, http.MethodGet, "/api/admin/my/tokens", nil, adminCookie, "")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	tokens, _ := body["tokens"].([]any)
+	if len(tokens) != 1 {
+		t.Fatalf("expected exactly 1 personal token for the admin, got %d", len(tokens))
+	}
+	if name, _ := tokens[0].(map[string]any)["name"].(string); name != "admin-personal" {
+		t.Fatalf("expected the admin's own token, got %q", name)
+	}
+
+	// The platform-wide administrative view sees both, each with its owner.
+	status, body, _ = doJSON(t, srv, http.MethodGet, "/api/admin/tokens", nil, adminCookie, "")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d", status)
+	}
+	all, _ := body["tokens"].([]any)
+	if len(all) != 2 {
+		t.Fatalf("expected the administrative view to list both tokens, got %d", len(all))
+	}
+	owners := map[string]bool{}
+	for _, raw := range all {
+		tok, _ := raw.(map[string]any)
+		id, _ := tok["user_id"].(string)
+		if id == "" {
+			t.Fatalf("administrative token view must expose the owning user_id: %v", tok)
+		}
+		owners[id] = true
+	}
+	if len(owners) != 2 {
+		t.Fatalf("expected tokens owned by two distinct users, got %d", len(owners))
+	}
+}
+
+// TestAdminCanIssueTokenForAnotherUser covers provisioning a token on behalf of
+// a teammate, which is the reason the owner is selectable at all.
+func TestAdminCanIssueTokenForAnotherUser(t *testing.T) {
+	srv, authSvc := newAuthHarness(t)
+	adminCookie := login(t, srv, "admin", authTestPassword)
+
+	member := findUser(t, authSvc, "member")
+
+	status, body, _ := doJSON(t, srv, http.MethodPost, "/api/admin/tokens", map[string]any{
+		"name":    "member-ci",
+		"user_id": member.ID,
+		"scopes":  []string{"read", "publish"},
+	}, adminCookie, "")
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (%v)", status, body)
+	}
+
+	token, _ := body["token"].(map[string]any)
+	if owner, _ := token["user_id"].(string); owner != member.ID {
+		t.Fatalf("expected the token to belong to %s, got %s", member.ID, owner)
+	}
+
+	// The issued token authenticates as its owner, not as the administrator
+	// who created it.
+	plaintext, _ := body["plaintext"].(string)
+	status, me, _ := doJSON(t, srv, http.MethodGet, "/api/admin/auth/me", nil, nil, plaintext)
+	if status != http.StatusOK {
+		t.Fatalf("expected the issued token to authenticate, got %d (%v)", status, me)
+	}
+	user, _ := me["user"].(map[string]any)
+	if name, _ := user["username"].(string); name != "member" {
+		t.Fatalf("expected the token to act as member, got %q", name)
+	}
+}
+
+// TestAdminCannotIssueTokenForUnknownOrDisabledUser keeps the owner selector
+// honest: a token bound to a nonexistent or disabled account would be dead on
+// arrival.
+func TestAdminCannotIssueTokenForUnknownOrDisabledUser(t *testing.T) {
+	srv, authSvc := newAuthHarness(t)
+	adminCookie := login(t, srv, "admin", authTestPassword)
+
+	status, body, _ := doJSON(t, srv, http.MethodPost, "/api/admin/tokens", map[string]any{
+		"name":    "ghost-token",
+		"user_id": "000000000000000000000000",
+		"scopes":  []string{"read"},
+	}, adminCookie, "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an unknown owner, got %d (%v)", status, body)
+	}
+
+	member := findUser(t, authSvc, "member")
+	disabled := true
+	if _, err := authSvc.UpdateUser(context.Background(), member.ID, auth.UpdateUserInput{Disabled: &disabled}); err != nil {
+		t.Fatalf("disabling the member: %v", err)
+	}
+
+	status, body, _ = doJSON(t, srv, http.MethodPost, "/api/admin/tokens", map[string]any{
+		"name":    "dead-token",
+		"user_id": member.ID,
+		"scopes":  []string{"read"},
+	}, adminCookie, "")
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a disabled owner, got %d (%v)", status, body)
+	}
+}

@@ -918,7 +918,10 @@ func (h *Handler) handleListTokens(w http.ResponseWriter, r *http.Request, _ *au
 
 func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
 	var body struct {
-		Name         string            `json:"name"`
+		Name string `json:"name"`
+		// UserID issues the token on behalf of another account. It is optional:
+		// when empty the token belongs to the calling administrator.
+		UserID       string            `json:"user_id"`
 		RegistryID   string            `json:"registry_id"`
 		RegistryType string            `json:"registry_type"`
 		Scopes       []auth.Permission `json:"scopes"`
@@ -953,6 +956,22 @@ func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, prin
 	if principal.User != nil {
 		userID = principal.User.ID
 	}
+	// An administrator may issue a token on behalf of another account, for
+	// example when provisioning a CI job for a teammate. The requested owner
+	// must exist and must not be disabled, otherwise the token would be dead
+	// on arrival.
+	if target := strings.TrimSpace(body.UserID); target != "" && target != userID {
+		owner, err := h.auth.GetUserByID(r.Context(), target)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "selected user does not exist")
+			return
+		}
+		if owner.Disabled {
+			writeError(w, http.StatusBadRequest, "selected user account is disabled")
+			return
+		}
+		userID = owner.ID
+	}
 
 	tok, plaintext, err := h.auth.CreateToken(r.Context(), auth.CreateTokenInput{
 		Name:         body.Name,
@@ -978,7 +997,11 @@ func (h *Handler) handleCreateToken(w http.ResponseWriter, r *http.Request, prin
 		Target:     tok.Name,
 		IPAddress:  clientIP(r),
 		Success:    true,
-		Details:    map[string]any{"scopes": tok.Scopes, "namespaces": tok.Namespaces},
+		Details: map[string]any{
+			"scopes":     tok.Scopes,
+			"namespaces": tok.Namespaces,
+			"owner_id":   tok.UserID,
+		},
 	})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token":     tok,
