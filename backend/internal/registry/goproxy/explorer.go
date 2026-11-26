@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/auth"
 )
 
 // The explorer endpoints below serve the public Go module browser UI. They are

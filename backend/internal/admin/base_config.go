@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 // Apply modes for pushing base storage settings into existing registries.

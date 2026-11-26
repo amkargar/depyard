@@ -7,7 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 func (s *Store) CreateInstance(ctx context.Context, inst *registry.Instance) error {

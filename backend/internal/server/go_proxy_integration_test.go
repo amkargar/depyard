@@ -11,17 +11,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/cache"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/goproxy"
-	"github.com/amkargar/mirror-registry/backend/internal/server"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry/goproxy"
+	"github.com/amkargar/depyard/backend/internal/server"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 // goUpstream is a fake GOPROXY upstream that serves a fixed module.

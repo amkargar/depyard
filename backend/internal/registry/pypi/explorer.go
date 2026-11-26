@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/auth"
 )
 
 // explorerProject is the JSON view of a project used by the PyPI explorer UI.

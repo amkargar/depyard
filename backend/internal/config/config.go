@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/auth"
 )
 
 // Config holds application-level configuration.

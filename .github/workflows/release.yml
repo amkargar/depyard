@@ -127,7 +127,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.backend_tags }}
           labels: |
-            org.opencontainers.image.title=Mirror Registry Backend
+            org.opencontainers.image.title=Depyard Backend
             org.opencontainers.image.description=Extensible multi-format package and artifact registry server
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
@@ -144,7 +144,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.nginx_tags }}
           labels: |
-            org.opencontainers.image.title=Mirror Registry Nginx Gateway
+            org.opencontainers.image.title=Depyard Nginx Gateway
             org.opencontainers.image.description=Nginx entrypoint serving the static Nuxt SPA and proxying registry traffic
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
@@ -168,13 +168,13 @@ jobs:
             docker save \
               "${BACKEND_IMAGE}:${RELEASE_TAG}" \
               "${NGINX_IMAGE}:${RELEASE_TAG}" \
-              | gzip -9 > "dist/mirror-registry-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
+              | gzip -9 > "dist/depyard-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
             docker rmi -f "${BACKEND_IMAGE}:${RELEASE_TAG}" "${NGINX_IMAGE}:${RELEASE_TAG}"
 
             # An empty export still compresses to ~20 bytes, which is how broken
             # arm64 archives shipped unnoticed. Surface it without failing the
             # release.
-            ARCHIVE="dist/mirror-registry-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
+            ARCHIVE="dist/depyard-images-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
             BYTES=$(stat -c%s "${ARCHIVE}" 2>/dev/null || echo 0)
             if [ "${BYTES}" -lt 1000000 ]; then
               echo "::warning::${ARCHIVE} is only ${BYTES} bytes — the image export for linux/${ARCH} looks empty"
@@ -182,15 +182,15 @@ jobs:
           done
 
           sed \
-            -e "s|ghcr.io/amkargar/mirror-registry|${IMAGE_PREFIX}|g" \
+            -e "s|ghcr.io/amkargar/depyard|${IMAGE_PREFIX}|g" \
             -e "s|MIRROR_REGISTRY_TAG:-latest|MIRROR_REGISTRY_TAG:-${RELEASE_TAG}|g" \
             docker-compose.release.yml > dist/docker-compose.release.yml
 
           (
             cd dist
             sha256sum \
-              "mirror-registry-images-${RELEASE_TAG}-linux-amd64.tar.gz" \
-              "mirror-registry-images-${RELEASE_TAG}-linux-arm64.tar.gz" \
+              "depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz" \
+              "depyard-images-${RELEASE_TAG}-linux-arm64.tar.gz" \
               "docker-compose.release.yml" > SHA256SUMS.txt
           )
 
@@ -201,7 +201,7 @@ jobs:
           NGINX_IMAGE: ${{ steps.meta.outputs.nginx_image }}
         run: |
           cat <<EOF > /tmp/RELEASE_NOTES.md
-          ## Mirror Registry ${RELEASE_TAG}
+          ## Depyard ${RELEASE_TAG}
 
           ### Container Images (GHCR — \`linux/amd64\` & \`linux/arm64\`)
           - \`${BACKEND_IMAGE}:${RELEASE_TAG}\`
@@ -223,11 +223,11 @@ jobs:
 
           ### Quick Start Using the Release Image Archive (Offline / No GHCR Login)
           1. Download \`docker-compose.release.yml\` and the image archive matching your PC from **Assets**:
-             - Intel/AMD (Windows, Linux, Intel Mac): \`mirror-registry-images-${RELEASE_TAG}-linux-amd64.tar.gz\`
-             - Apple Silicon (M1–M4 Mac) / ARM64 Linux: \`mirror-registry-images-${RELEASE_TAG}-linux-arm64.tar.gz\`
+             - Intel/AMD (Windows, Linux, Intel Mac): \`depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz\`
+             - Apple Silicon (M1–M4 Mac) / ARM64 Linux: \`depyard-images-${RELEASE_TAG}-linux-arm64.tar.gz\`
           2. Load the images into Docker and start:
              \`\`\`bash
-             docker load -i mirror-registry-images-${RELEASE_TAG}-linux-amd64.tar.gz
+             docker load -i depyard-images-${RELEASE_TAG}-linux-amd64.tar.gz
              HTTP_PORT=8080 docker compose -f docker-compose.release.yml up -d
              \`\`\`
 
@@ -248,13 +248,13 @@ jobs:
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" dist/* --clobber
             gh release edit "${RELEASE_TAG}" \
-              --title "Mirror Registry ${RELEASE_TAG}" \
+              --title "Depyard ${RELEASE_TAG}" \
               --notes-file /tmp/RELEASE_NOTES.md \
               "${EXTRA_ARGS[@]}"
           else
             gh release create "${RELEASE_TAG}" dist/* \
               --target "${GITHUB_SHA}" \
-              --title "Mirror Registry ${RELEASE_TAG}" \
+              --title "Depyard ${RELEASE_TAG}" \
               --notes-file /tmp/RELEASE_NOTES.md \
               "${EXTRA_ARGS[@]}"
           fi

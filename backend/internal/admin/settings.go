@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 // PlatformSettings holds global registry-agnostic platform & upstream settings stored in the `settings` collection.
@@ -51,14 +51,14 @@ const (
 func DefaultSettings(publicBaseURL string, rootCompat bool) *PlatformSettings {
 	return &PlatformSettings{
 		ID:                         "global",
-		SiteTitle:                  "Mirror Registry",
+		SiteTitle:                  "Depyard",
 		PublicBaseURL:              strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"),
 		EnableRootCompatRoute:      rootCompat,
 		AuditRetentionDays:         90,
 		StatsRetentionDays:         90,
 		UpstreamProxyURL:           "",
 		UpstreamTimeoutSeconds:     60,
-		UpstreamUserAgent:          "mirror-registry/1.0",
+		UpstreamUserAgent:          "depyard/1.0",
 		UpstreamInsecureSkipVerify: false,
 		DefaultPubUpstreamURL:      "https://pub.dev",
 		DefaultFlutterStorageURL:   "https://storage.googleapis.com",
@@ -74,7 +74,7 @@ func (s *PlatformSettings) Normalize() {
 	}
 	s.SiteTitle = strings.TrimSpace(s.SiteTitle)
 	if s.SiteTitle == "" {
-		s.SiteTitle = "Mirror Registry"
+		s.SiteTitle = "Depyard"
 	}
 	s.PublicBaseURL = strings.TrimRight(strings.TrimSpace(s.PublicBaseURL), "/")
 	if s.AuditRetentionDays <= 0 {
@@ -92,7 +92,7 @@ func (s *PlatformSettings) Normalize() {
 	}
 	s.UpstreamUserAgent = strings.TrimSpace(s.UpstreamUserAgent)
 	if s.UpstreamUserAgent == "" {
-		s.UpstreamUserAgent = "mirror-registry/1.0"
+		s.UpstreamUserAgent = "depyard/1.0"
 	}
 	s.DefaultPubUpstreamURL = strings.TrimRight(strings.TrimSpace(s.DefaultPubUpstreamURL), "/")
 	if s.DefaultPubUpstreamURL == "" {

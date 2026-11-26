@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
 )
 
 // TestCoreNeverImportsConcreteRegistry scans every non-test Go source file in shared core packages

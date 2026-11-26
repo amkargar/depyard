@@ -9,8 +9,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
 )
 
 func TestDeduplicationSafeDeletionAndEvictionProtection(t *testing.T) {

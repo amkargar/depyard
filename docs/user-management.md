@@ -1,7 +1,7 @@
 # User Management, Authentication & Access Tokens
 
 This document describes how accounts, sessions and access tokens work in
-Mirror Registry, and how to operate them.
+Depyard, and how to operate them.
 
 ## Roles
 

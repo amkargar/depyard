@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 const RegistryType = "pub"

@@ -68,7 +68,7 @@ func NewClient(defaultTimeout time.Duration) *Client {
 	}
 	c := &Client{
 		defaultTimeout:     defaultTimeout,
-		userAgent:          "mirror-registry/1.0",
+		userAgent:          "depyard/1.0",
 		overrideTransports: make(map[string]*http.Transport),
 	}
 	c.transport = buildTransport(nil, false)
@@ -110,7 +110,7 @@ func (c *Client) ApplyConfig(cfg Config) error {
 	}
 	ua := strings.TrimSpace(cfg.UserAgent)
 	if ua == "" {
-		ua = "mirror-registry/1.0"
+		ua = "depyard/1.0"
 	}
 
 	newTr := buildTransport(parsedProxy, cfg.InsecureSkipVerify)

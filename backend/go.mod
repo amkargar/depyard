@@ -1,4 +1,4 @@
-module github.com/amkargar/mirror-registry/backend
+module github.com/amkargar/depyard/backend
 
 go 1.25.0
 

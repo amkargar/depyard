@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/storage"
 )
 
 // Store provides thread-safe in-memory persistence for tests and standalone local development.

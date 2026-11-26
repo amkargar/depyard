@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
 const RegistryType = "goproxy"

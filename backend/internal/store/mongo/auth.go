@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/auth"
 )
 
 func (s *Store) CreateUser(ctx context.Context, user *auth.User) error {

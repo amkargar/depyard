@@ -1,6 +1,6 @@
 # Adding a New Registry Type
 
-Mirror Registry is a multi-format package and artifact registry platform where each package ecosystem is compiled into the server as an isolated Go package under `backend/internal/registry/<ecosystem>/`.
+Depyard is a multi-format package and artifact registry platform where each package ecosystem is compiled into the server as an isolated Go package under `backend/internal/registry/<ecosystem>/`.
 
 The shared core (`internal/registry`, `internal/storage`, `internal/cache`, `internal/upstream`, `internal/auth`, `internal/admin`, `internal/metrics`, `internal/server`) is completely ecosystem-agnostic and must **never** import a concrete registry implementation. You do not need to read or understand the `pub` module to implement a new registry type.
 

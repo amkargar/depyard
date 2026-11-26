@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/storage"
 )
 
 // VersionInfo is the JSON document returned by GET $base/<module>/@v/<version>.info.

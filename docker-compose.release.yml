@@ -12,7 +12,7 @@ services:
       start_period: 10s
 
   backend:
-    image: ${IMAGE_PREFIX:-ghcr.io/amkargar/mirror-registry}-backend:${MIRROR_REGISTRY_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/amkargar/depyard}-backend:${MIRROR_REGISTRY_TAG:-latest}
     restart: unless-stopped
     depends_on:
       mongodb:
@@ -55,7 +55,7 @@ services:
       start_period: 5s
 
   nginx:
-    image: ${IMAGE_PREFIX:-ghcr.io/amkargar/mirror-registry}-nginx:${MIRROR_REGISTRY_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/amkargar/depyard}-nginx:${MIRROR_REGISTRY_TAG:-latest}
     restart: unless-stopped
     depends_on:
       backend:

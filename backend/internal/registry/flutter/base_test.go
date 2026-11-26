@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
+	"github.com/amkargar/depyard/backend/internal/registry/flutter"
 )
 
 func TestNormalizeBaseConfig(t *testing.T) {

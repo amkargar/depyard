@@ -19,18 +19,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/admin"
-	"github.com/amkargar/mirror-registry/backend/internal/audit"
-	"github.com/amkargar/mirror-registry/backend/internal/auth"
-	"github.com/amkargar/mirror-registry/backend/internal/cache"
-	"github.com/amkargar/mirror-registry/backend/internal/metrics"
-	"github.com/amkargar/mirror-registry/backend/internal/registry"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/flutter"
-	"github.com/amkargar/mirror-registry/backend/internal/registry/pub"
-	"github.com/amkargar/mirror-registry/backend/internal/server"
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
-	memstore "github.com/amkargar/mirror-registry/backend/internal/store/memory"
-	"github.com/amkargar/mirror-registry/backend/internal/upstream"
+	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/audit"
+	"github.com/amkargar/depyard/backend/internal/auth"
+	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/metrics"
+	"github.com/amkargar/depyard/backend/internal/registry"
+	"github.com/amkargar/depyard/backend/internal/registry/flutter"
+	"github.com/amkargar/depyard/backend/internal/registry/pub"
+	"github.com/amkargar/depyard/backend/internal/server"
+	"github.com/amkargar/depyard/backend/internal/storage"
+	memstore "github.com/amkargar/depyard/backend/internal/store/memory"
+	"github.com/amkargar/depyard/backend/internal/upstream"
 )
 
 // mockBinRegistry is a minimal TEST-ONLY registry type (never shipped in production).
@@ -814,7 +814,7 @@ func TestFlutterStorageAdminSettingsAndUpstreamManagement(t *testing.T) {
 
 	// 2. Live Admin Settings update: change public_base_url, user_agent, and toggle root compat route!
 	settingsPayload := `{
-		"site_title": "Mirror Registry Custom",
+		"site_title": "Depyard Custom",
 		"public_base_url": "https://cdn.mirror.local",
 		"enable_root_compat_route": false,
 		"audit_retention_days": 30,

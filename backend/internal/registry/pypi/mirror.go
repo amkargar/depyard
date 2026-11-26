@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amkargar/mirror-registry/backend/internal/storage"
+	"github.com/amkargar/depyard/backend/internal/storage"
 )
 
 // upstreamJSONIndex is the PEP 691 JSON representation of an upstream project.
