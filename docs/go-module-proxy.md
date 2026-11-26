@@ -23,8 +23,9 @@ On Windows PowerShell:
 $env:GOPROXY="http://localhost/r/go-proxy"
 ```
 
-The default seeded instance is `go-proxy` (slug), created on first startup when
-`SEED_GO_PROXY=true` (the default).
+The default seeded instance is `go-proxy` (slug), added on first startup when
+`SEED_GO_PROXY=true` (the default). Like all first-install registries it starts
+**disabled**; enable it in **Admin → Registries** before pointing `GOPROXY` at it.
 
 ---
 

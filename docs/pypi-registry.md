@@ -25,9 +25,11 @@ With `uv`:
 uv pip install --index-url http://localhost/r/python-packages/simple/ requests
 ```
 
-The default seeded instance is `python-packages` (slug), created on first startup when
-`SEED_PYPI=true` (the default). It runs in **hybrid** mode: it mirrors `pypi.org` and
-also accepts local publishing. Change that with `DEFAULT_PYPI_MODE=proxy|hosted|hybrid`.
+The default seeded instance is `python-packages` (slug), added on first startup when
+`SEED_PYPI=true` (the default). Like all first-install registries it starts
+**disabled**; enable it in **Admin → Registries** before configuring `pip`.
+Once enabled it runs in **hybrid** mode: it mirrors `pypi.org` and also accepts
+local publishing. Change that with `DEFAULT_PYPI_MODE=proxy|hosted|hybrid`.
 
 ---
 

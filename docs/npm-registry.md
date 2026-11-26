@@ -13,9 +13,11 @@ every other ecosystem; no shared core package knows about npm.
 | `hybrid` | Serves local versions alongside mirrored ones. Protected package patterns are never fetched from upstream. |
 
 The default seeded instance is `npm-packages` (hybrid, upstream
-`https://registry.npmjs.org`). Disable it with `SEED_NPM=false` or change it with
-`DEFAULT_NPM_SLUG`, `DEFAULT_NPM_NAME`, `DEFAULT_NPM_MODE`, and
-`DEFAULT_NPM_UPSTREAM_URL`.
+`https://registry.npmjs.org`). It is added on a clean install but, like every
+first-install registry, starts **disabled**: enable it in **Admin → Registries**
+before running the client commands below. Skip adding it with `SEED_NPM=false`,
+or change its defaults with `DEFAULT_NPM_SLUG`, `DEFAULT_NPM_NAME`,
+`DEFAULT_NPM_MODE`, and `DEFAULT_NPM_UPSTREAM_URL`.
 
 ## Client setup
 
