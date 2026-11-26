@@ -15,12 +15,12 @@ func TestRegistryScopedTokenIsolationAndNamespaces(t *testing.T) {
 	ctx := context.Background()
 	svc := auth.NewService(memstore.New(), time.Hour)
 
-	_, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", "secret123")
+	_, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", "secret-password-123")
 	if err != nil {
 		t.Fatalf("EnsureBootstrapAdmin: %v", err)
 	}
 
-	user, _, _, err := svc.Login(ctx, "admin", "secret123", "test-agent", "127.0.0.1")
+	user, _, _, err := svc.Login(ctx, "admin", "secret-password-123", "test-agent", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}

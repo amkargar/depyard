@@ -24,15 +24,16 @@ const (
 )
 
 var (
-	ErrUnauthenticated  = errors.New("authentication required")
-	ErrForbidden        = errors.New("permission denied")
-	ErrInvalidCreds     = errors.New("invalid username or password")
-	ErrNotFound         = errors.New("not found")
-	ErrAlreadyExists    = errors.New("already exists")
-	ErrTokenExpired     = errors.New("token expired")
-	ErrTokenRevoked     = errors.New("token revoked")
-	ErrUserDisabled     = errors.New("user account is disabled")
-	ErrInvalidScope     = errors.New("invalid permission scope")
+	ErrUnauthenticated = errors.New("authentication required")
+	ErrForbidden       = errors.New("permission denied")
+	ErrInvalidCreds    = errors.New("invalid username or password")
+	ErrNotFound        = errors.New("not found")
+	ErrAlreadyExists   = errors.New("already exists")
+	ErrTokenExpired    = errors.New("token expired")
+	ErrTokenRevoked    = errors.New("token revoked")
+	ErrUserDisabled    = errors.New("user account is disabled")
+	ErrInvalidScope    = errors.New("invalid permission scope")
+	ErrLastAdmin       = errors.New("cannot remove the last active administrator")
 )
 
 // User represents a platform user stored in the `users` collection.

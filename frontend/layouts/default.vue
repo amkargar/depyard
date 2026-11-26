@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Boxes, Shield, Compass } from 'lucide-vue-next'
+import { Boxes, Shield, Compass, UserCircle } from 'lucide-vue-next'
 
-const { isAdmin, refresh } = useAuth()
+const { user, isAdmin, refresh } = useAuth()
 onMounted(() => refresh())
 </script>
 
@@ -30,12 +30,30 @@ onMounted(() => refresh())
         </div>
 
         <div class="flex items-center gap-2">
+          <template v-if="user">
+            <NuxtLink
+              to="/dashboard"
+              class="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+            >
+              <UserCircle class="h-3.5 w-3.5 text-primary" />
+              My Account
+            </NuxtLink>
+            <NuxtLink
+              v-if="isAdmin"
+              to="/admin"
+              class="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
+            >
+              <Shield class="h-3.5 w-3.5 text-primary" />
+              Admin Console
+            </NuxtLink>
+          </template>
           <NuxtLink
-            :to="isAdmin ? '/admin' : '/login'"
+            v-else
+            to="/login"
             class="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted transition-colors"
           >
             <Shield class="h-3.5 w-3.5 text-primary" />
-            {{ isAdmin ? 'Admin Console' : 'Admin Sign In' }}
+            Sign In
           </NuxtLink>
         </div>
       </div>

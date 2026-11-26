@@ -77,7 +77,16 @@ ADMIN_PASSWORD=your-strong-password
 ADMIN_EMAIL=admin@example.com
 ```
 
-When the users collection has no admin user yet, the backend automatically creates this admin account on startup (default fallback if unset: `admin` / `changeme123` — change this immediately in production).
+When no **active** administrator exists yet, the backend automatically creates this admin account on startup.
+
+If `ADMIN_PASSWORD` is not set, the server generates a strong random password and prints it **once** in the startup log — there is no predictable default credential any more:
+
+```
+WARN no ADMIN_PASSWORD configured: a password was generated for the initial admin account
+     username=admin password=<generated>
+```
+
+Store it, then change it from **My Account → Profile** after signing in. Passwords must be at least 12 characters (`MIN_PASSWORD_LENGTH` can relax the floor for existing deployments). See [docs/user-management.md](docs/user-management.md) for the full account-management reference.
 
 ### 2. Via the Admin Web UI
 
@@ -85,15 +94,33 @@ When the users collection has no admin user yet, the backend automatically creat
 2. Open **Admin Console → Users** (`/admin/users`).
 3. Click **Create User**, enter the username, email, and password, set **Role** to **`Admin`**, and click **Create User**.
 
+The same page lets you edit an account (username, email, role, status, and an
+optional password reset). The last active administrator cannot be demoted,
+disabled, or deleted — the platform refuses the request rather than locking
+everybody out.
+
+### Regular Users
+
+A non-administrator signs in at `http://localhost/login` and lands on **My
+Account** (`/dashboard`) instead of the admin console. There they can:
+
+- edit their own username and email, and change their own password
+  (`/profile`),
+- create, revoke and delete **personal access tokens** (`/tokens`),
+- browse the public registries published on the instance.
+
+Personal tokens are bound to the owner and can never grant more than the
+owner's own permissions: a regular user cannot mint an `admin`-scoped token.
+
 ### 3. Via the Admin HTTP API
 
 Authenticate as an existing admin (session cookie or admin Bearer token) and send a `POST /api/admin/users` request:
 
 ```bash
 # 1. Log in to obtain an admin session token
-TOKEN=$(curl -sS -X POST http://localhost/api/auth/login \
+TOKEN=$(curl -sS -X POST http://localhost/api/admin/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"changeme123"}' | jq -r '.token')
+  -d '{"username":"admin","password":"your-strong-password"}' | jq -r '.token')
 
 # 2. Create a new admin user
 curl -sS -X POST http://localhost/api/admin/users \
@@ -196,7 +223,7 @@ category's TTL). A registry can opt out of category merging with `"download_stor
 ```bash
 TOKEN=$(curl -s -X POST http://localhost/api/admin/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | jq -r .token)
+  -d '{"username":"admin","password":"your-strong-password"}' | jq -r .token)
 
 # Save the base settings (validated by the same strict parser the runtime uses)
 curl -s -X PUT http://localhost/api/admin/settings \
