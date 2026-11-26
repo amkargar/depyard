@@ -27,6 +27,15 @@ Compiled registry modules built on the ecosystem-agnostic core:
   - Go-accurate module path validation (traversal protection) and semantic version ordering, including pseudo-version detection.
   - Per-instance policies: allowed / blocked / protected module patterns, module size cap, and pre-release filtering.
   - Ships a public **Go Module Proxy** explorer (`/explore/<slug>`) with a module directory, per-module version tables, and copyable `GOPROXY=` / `go get` snippets. See [docs/go-module-proxy.md](docs/go-module-proxy.md).
+- **Python Package Index (PyPI)**:
+  - Implements the [Simple Repository API](https://packaging.python.org/en/latest/specifications/simple-repository-api/) (PEP 503 HTML and PEP 691 JSON) with `Accept` content negotiation, so `pip`, `uv` and `poetry` resolve packages through the mirror.
+  - Serves PEP 658/PEP 714 core-metadata sidecars, so installers resolve dependencies without downloading whole distributions.
+  - Implements the [legacy upload API](https://docs.pypi.org/api/upload/), so `twine upload` publishes directly — including HTTP Basic authentication (`__token__` / API token), the scheme Python tooling uses.
+  - Python-accurate **PEP 440** version parsing and ordering (epochs, pre-releases, post-releases, dev releases and local versions) — not semver.
+  - Normalizes project names per the packaging spec (`re.sub(r"[-_.]+", "-", name).lower()`), so `Zope.Interface` and `zope_interface` resolve to the same project.
+  - Models a release as many distribution files (one sdist plus any number of platform wheels) across three collections: `pypi_projects`, `pypi_releases` and `pypi_files`.
+  - Per-instance policies: allowed / blocked / protected project patterns, distribution size cap, pre-release filtering, and PEP 592 yanking support.
+  - Ships a public **Python Package Index** explorer (`/explore/<slug>`) with a package directory, per-release file tables, and copyable `pip install` / `twine upload` snippets. See [docs/pypi-registry.md](docs/pypi-registry.md).
 - **Multi-Type Root Compatibility & `/r/<slug>` Routing`:
   - Every registry instance operates under its own isolated `/r/<slug>` base path.
   - Optional root-level compatibility routing serves both the default Pub instance (`/api/packages/*`, `/packages/*`) and the default Flutter Storage instance (`/flutter_infra_release/*`, `/flutter_infra/*`, `/download.flutter.io/*`, `/dart-archive/*`) simultaneously.
@@ -251,6 +260,41 @@ curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/v0.9.1.zip
 
 See [docs/go-module-proxy.md](docs/go-module-proxy.md) for configuration, caching
 behaviour, module path rules, and the explorer API.
+
+## Using with Python
+
+### Python Package Index (PyPI)
+
+```bash
+# Multi-registry isolated URL
+pip install --index-url http://localhost/r/python-packages/simple/ requests
+
+# Or configure it once
+pip config set global.index-url http://localhost/r/python-packages/simple/
+
+# With uv
+uv pip install --index-url http://localhost/r/python-packages/simple/ requests
+```
+
+Publish a package with `twine`:
+
+```bash
+TWINE_USERNAME=__token__ \
+TWINE_PASSWORD=mr_your_access_token \
+twine upload --repository-url http://localhost/r/python-packages/legacy/ dist/*
+```
+
+The index serves the Simple Repository API in both HTML and JSON, plus PEP 658
+core-metadata sidecars:
+
+```bash
+curl -s http://localhost/r/python-packages/simple/requests/
+curl -s -H 'Accept: application/vnd.pypi.simple.v1+json' \
+  http://localhost/r/python-packages/simple/requests/
+```
+
+See [docs/pypi-registry.md](docs/pypi-registry.md) for configuration, PEP 440 version
+rules, publishing, and the explorer API.
 
 ## Local Development
 
