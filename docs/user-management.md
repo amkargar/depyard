@@ -45,7 +45,10 @@ On first boot the server creates an administrator account. The credentials are:
   ```
 
   Store it and change it after signing in. Setting `ADMIN_PASSWORD` explicitly
-  makes the first-boot password deterministic instead.
+  makes the first-boot password deterministic instead. The
+  [one-command installer](../README.md#one-command-installation-docker-only)
+  generates this password itself, saves it in `~/.depyard/.env` with mode `600`,
+  and prints it once after startup; it does not rely on the log line.
 
 The bootstrap administrator is created whenever **no active administrator
 exists**, not merely when the user table is empty. If the only administrator is
