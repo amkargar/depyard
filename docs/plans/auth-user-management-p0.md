@@ -130,6 +130,33 @@ All thirteen defects are fixed and covered by tests.
   now returns `{"user": {...}}` instead of the bare user object, matching the
   profile endpoint.
 
+### Follow-up: administrators are accounts too
+
+Reviewing the finished work surfaced a usability gap rather than a defect: an
+administrator signs in to `/admin` and the admin console had no route to the
+personal pages, so the only account surface an administrator could reach was
+the platform-wide one.
+
+- The admin sidebar gained a **My Account** section linking to *My Dashboard*,
+  *My Profile* and *My Tokens*. Those pages keep the `user` layout, so there is
+  one implementation rather than two.
+- The platform-wide *Access Tokens* page now shows an **Owner** column, so an
+  administrator can tell their own tokens from everyone else's.
+- `POST /api/admin/tokens` accepts an optional `user_id`, letting an
+  administrator provision a token for another account (typically CI for a
+  teammate). The owner must exist and be enabled; the token authenticates as
+  its owner and inherits that owner's permission ceiling.
+
+Two points worth recording explicitly:
+
+- The administrative token view is intentionally a superset. `/my/tokens`
+  stays strictly owner-scoped for every account including administrators, so
+  the personal surface never becomes a back door into other users' credentials.
+- **Disable is a suspension, not a revocation.** A disabled account's sessions
+  and tokens are refused immediately, and re-enabling restores access to any
+  token that was not separately revoked. Deletion remains the way to make a
+  credential permanently unusable.
+
 ## Explicitly out of scope for this change
 
 - The first-run setup wizard (P1) — it depends on the admin-account work here,

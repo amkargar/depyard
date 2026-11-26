@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   X,
+  UserCircle,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -28,7 +29,20 @@ const navItems = [
   { to: '/admin/settings', label: 'Settings', icon: Settings, exact: false },
 ]
 
-function isActive(item: (typeof navItems)[number]) {
+// An administrator is also an ordinary account: they need the same personal
+// pages every other user has (their own profile, password and personal
+// tokens). These live under the user layout, so the admin console links out
+// to them instead of duplicating them.
+const accountItems = [
+  { to: '/dashboard', label: 'My Dashboard', icon: LayoutDashboard, exact: true },
+  { to: '/profile', label: 'My Profile', icon: UserCircle, exact: false },
+  { to: '/tokens', label: 'My Tokens', icon: KeyRound, exact: false },
+]
+
+// Both lists share the same shape so the same isActive() helper can serve them.
+type NavItem = (typeof navItems)[number]
+
+function isActive(item: NavItem) {
   if (item.exact) return route.path === item.to
   return route.path === item.to || route.path.startsWith(item.to + '/')
 }
@@ -79,6 +93,27 @@ async function handleLogout() {
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <NuxtLink
           v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          :class="[
+            'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            isActive(item)
+              ? 'bg-primary/10 text-primary'
+              : 'text-slate-600 hover:bg-muted hover:text-foreground',
+          ]"
+          @click="mobileOpen = false"
+        >
+          <component :is="item.icon" class="h-4 w-4 shrink-0" />
+          <span>{{ item.label }}</span>
+        </NuxtLink>
+
+        <div class="px-3 pt-4">
+          <div class="pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            My Account
+          </div>
+        </div>
+        <NuxtLink
+          v-for="item in accountItems"
           :key="item.to"
           :to="item.to"
           :class="[
