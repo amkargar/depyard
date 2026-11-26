@@ -55,3 +55,21 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * Encodes an artifact path for use inside a URL path segment while keeping the
+ * "/" separators literal.
+ *
+ * encodeURIComponent() encodes "/" as "%2F", which browsers decode back into a
+ * real slash before the router sees it. That turns a single logical segment
+ * into several and breaks routing for hierarchical identifiers such as Go
+ * module paths ("github.com/pkg/errors"). Encoding each segment separately
+ * keeps the hierarchy intact while still escaping characters that are unsafe
+ * in a path (spaces, "#", "?", "%", ...).
+ */
+export function encodePathSegments(path: string): string {
+  return String(path)
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}

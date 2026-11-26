@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Search, Copy, Check, Download, Package, Layers, Clock, ArrowRight } from 'lucide-vue-next'
 import type { PublicRegistryView } from '~/types/registry'
-import { formatRelative, copyText } from '~/utils/format'
+import { formatRelative, copyText, encodePathSegments } from '~/utils/format'
 
 const props = defineProps<{
   registry: PublicRegistryView
@@ -212,7 +212,7 @@ watch(() => props.registry.slug, () => {
         <NuxtLink
           v-for="pkg in packages"
           :key="pkg.id"
-          :to="`/explore/${registry.slug}/packages/${encodeURIComponent(pkg.name)}`"
+          :to="`/explore/${registry.slug}/packages/${encodePathSegments(pkg.name)}`"
           class="group block rounded-lg border bg-card p-5 hover:border-[#0175c2]/50 hover:shadow-md transition-all"
         >
           <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
