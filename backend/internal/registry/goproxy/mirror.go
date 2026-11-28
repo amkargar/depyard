@@ -111,13 +111,15 @@ func (r *GoRegistry) getOrFetchModule(ctx context.Context, modulePath string) (*
 		return nil, nil, ErrModuleNotFound
 	}
 
+	r.importMu.RLock()
+	defer r.importMu.RUnlock()
 	localMod, err := r.store.GetModule(ctx, r.inst.ID, modulePath)
 	if err != nil && !errors.Is(err, ErrModuleNotFound) {
 		return nil, nil, err
 	}
 
 	// Hosted-only mode never proxies upstream.
-	if r.inst.Mode == registry.ModeHosted {
+	if r.inst.Mode == registry.ModeHosted || (localMod != nil && localMod.Origin == storage.OriginHosted) {
 		if localMod == nil {
 			return nil, nil, ErrModuleNotFound
 		}
@@ -396,6 +398,10 @@ func (r *GoRegistry) ensureZipCached(ctx context.Context, modulePath, version st
 	}
 	if err != nil {
 		return nil, false, err
+	}
+
+	if r.inst.Mode == registry.ModeHosted || ver.Origin == storage.OriginHosted {
+		return nil, false, ErrVersionNotFound
 	}
 
 	// Deduplicated concurrent download via singleflight.

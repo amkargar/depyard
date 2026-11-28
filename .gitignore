@@ -9,3 +9,6 @@ backend/bin/
 .env
 .env.local
 .DS_Store
+# Local server certificates and private keys
+/certs/
+/backend/certs/

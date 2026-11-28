@@ -117,8 +117,8 @@ func TestGoCapabilities(t *testing.T) {
 	if !caps.Proxy {
 		t.Fatalf("expected the Go proxy to support proxy mode")
 	}
-	if caps.Hosted || caps.Publish {
-		t.Fatalf("the GOPROXY protocol has no publish operation, so hosted/publish must be false: %+v", caps)
+	if !caps.Hosted || !caps.Publish {
+		t.Fatalf("authenticated zip imports must be enabled for hosted modules: %+v", caps)
 	}
 	if !caps.ListVersions || !caps.CacheWarm {
 		t.Fatalf("expected list_versions and cache_warm support: %+v", caps)

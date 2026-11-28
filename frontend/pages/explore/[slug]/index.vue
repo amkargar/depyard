@@ -51,11 +51,6 @@ watch(slug, loadRegistry)
       :registry="registry"
     />
 
-    <div v-else-if="registry" class="mx-auto max-w-3xl px-4 sm:px-6 py-12">
-      <SharedEmptyState
-        :title="`No dedicated explorer UI for '${registry.type}' yet`"
-        description="This registry type is active via its protocol endpoints, but does not have a registered frontend explorer component yet."
-      />
-    </div>
+    <SharedRepositoryConnection v-else-if="registry" :registry="registry" />
   </div>
 </template>

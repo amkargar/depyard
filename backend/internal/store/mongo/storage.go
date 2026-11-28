@@ -3,6 +3,7 @@ package mongostore
 import (
 	"context"
 	"errors"
+	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -73,6 +74,8 @@ func (s *Store) UpsertArtifactRef(ctx context.Context, ref *storage.ArtifactRef)
 				"size_bytes":       ref.SizeBytes,
 				"origin":           ref.Origin,
 				"protected":        ref.Protected,
+				"headers":          ref.Headers,
+				"updated_at":       ref.UpdatedAt,
 				"last_accessed_at": ref.LastAccessedAt,
 			},
 		},
@@ -264,4 +267,40 @@ func (s *Store) GetRegistryStorageStats(ctx context.Context, registryID string) 
 		}
 	}
 	return out, nil
+}
+
+func (s *Store) ListArtifactRefs(ctx context.Context, registryID string, q storage.RefQuery) ([]*storage.ArtifactRef, int64, error) {
+	filter := bson.M{"registry_id": registryID}
+	if q.Origin != "" {
+		filter["origin"] = q.Origin
+	}
+	if q.Prefix != "" || q.Contains != "" {
+		pattern := "^" + regexp.QuoteMeta(q.Prefix)
+		if q.Contains != "" {
+			pattern += ".*(?i:" + regexp.QuoteMeta(q.Contains) + ")"
+		}
+		filter["artifact_key"] = bson.M{"$regex": pattern}
+	}
+	col := s.db.Collection(ColArtifactRefs)
+	opts := options.Find().SetSort(bson.D{{Key: "artifact_key", Value: 1}})
+	if q.Limit > 0 {
+		opts.SetLimit(int64(q.Limit))
+	}
+	if q.Offset > 0 {
+		opts.SetSkip(int64(q.Offset))
+	}
+	cur, err := col.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(ctx)
+	var refs []*storage.ArtifactRef
+	if err := cur.All(ctx, &refs); err != nil {
+		return nil, 0, err
+	}
+	if q.Limit == 0 && q.Offset == 0 {
+		return refs, int64(len(refs)), nil
+	}
+	total, err := col.CountDocuments(ctx, filter)
+	return refs, total, err
 }

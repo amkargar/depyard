@@ -60,11 +60,11 @@ type Store interface {
 type Collector struct {
 	store Store
 
-	mu         sync.RWMutex
-	pending    map[string]*BucketRecord
-	active     map[string]*atomic.Int64
-	upstream   map[string]UpstreamHealth
-	globalAct  atomic.Int64
+	mu        sync.RWMutex
+	pending   map[string]*BucketRecord
+	active    map[string]*atomic.Int64
+	upstream  map[string]UpstreamHealth
+	globalAct atomic.Int64
 }
 
 func NewCollector(store Store) *Collector {
@@ -326,4 +326,10 @@ func (c *Collector) getActiveGauge(registryID string) *atomic.Int64 {
 	g = &atomic.Int64{}
 	c.active[registryID] = g
 	return g
+}
+
+// RecordServed accounts for a successful HTTP transfer when cache lookups are
+// measured separately (one response may resolve multiple metadata objects).
+func (c *Collector) RecordServed(registryID string, bytes int64) {
+	c.mutatePending(registryID, func(b *BucketRecord) { b.Downloads++; b.BytesServed += bytes })
 }

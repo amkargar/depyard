@@ -27,6 +27,7 @@ export interface ConfigFieldHint {
 
 export interface RegistryTypeInfo {
   type: string
+  default_upstream_url?: string
   display_name: string
   description: string
   capabilities: Capabilities

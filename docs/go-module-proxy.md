@@ -31,7 +31,7 @@ The default seeded instance is `go-proxy` (slug), added on first startup when
 
 ## Protocol
 
-The proxy serves exactly the four request shapes the protocol defines:
+Go clients read these four request shapes:
 
 | Request | Response |
 |---|---|
@@ -40,7 +40,7 @@ The proxy serves exactly the four request shapes the protocol defines:
 | `GET /r/<slug>/<module>/@v/<version>.mod` | The module's `go.mod` file |
 | `GET /r/<slug>/<module>/@v/<version>.zip` | The module source zip |
 
-Anything else returns **404** — never a directory listing, which the protocol forbids.
+In hosted/hybrid mode an authenticated `PUT` to the `.zip` URL imports a Go module-format zip (not a GitHub source-code zip). Its root must be `<module>@<version>/`. Depyard reads `go.mod` from the archive (or supplies the minimal module directive), timestamps the imported version and updates the version list. A hosted module owns its name: importing over an existing cached module or existing version returns **409**. Use separate instances if you need both sources for the same name. Proxy-only instances reject writes. There is no directory listing.
 
 ```bash
 curl -s http://localhost/r/go-proxy/github.com/pkg/errors/@v/list
@@ -155,8 +155,8 @@ The same data is rendered in the public **Go Module Proxy** explorer
 | Capability | Supported | Notes |
 |---|---|---|
 | Proxy | ✅ | |
-| Hosted | ❌ | The GOPROXY protocol has no publish operation |
-| Publish | ❌ | |
+| Hosted | ✅ | Local module-format zip imports |
+| Publish | ✅ | Authenticated PUT extension, not a GOPROXY client command |
 | Search | ❌ | Use the explorer API instead |
 | List versions | ✅ | |
 | Cache warm | ✅ | |

@@ -82,9 +82,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dedicated hostname routing (supports future protocols requiring root-level hostnames such as OCI)
+	// Dedicated hostname routing. Continuation URLs must stay on this host,
+	// even when the platform has a different canonical public base URL.
 	if rt, ok := s.manager.GetRuntimeByHostname(r.Host); ok {
-		s.dispatchToRuntime(w, r, rt, s.resolveOrigin(r), false)
+		s.dispatchToRuntime(w, r, rt, requestScheme(r)+"://"+r.Host, false)
 		return
 	}
 
@@ -179,13 +180,6 @@ func (s *Server) resolveOrigin(r *http.Request) string {
 			return base
 		}
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
-		scheme = strings.Split(proto, ",")[0]
-	}
 	host := r.Host
 	if fwdHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwdHost != "" {
 		host = strings.Split(fwdHost, ",")[0]
@@ -193,7 +187,15 @@ func (s *Server) resolveOrigin(r *http.Request) string {
 	if host == "" {
 		return ""
 	}
-	return scheme + "://" + host
+	return requestScheme(r) + "://" + host
+}
+
+func requestScheme(r *http.Request) string {
+	proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https") {
+		return "https"
+	}
+	return "http"
 }
 
 func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {

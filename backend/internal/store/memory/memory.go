@@ -3,6 +3,7 @@ package memstore
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -667,4 +668,23 @@ func (s *Store) SaveSettings(_ context.Context, st *admin.PlatformSettings) erro
 	cp.UpdatedAt = time.Now().UTC()
 	s.settings = &cp
 	return nil
+}
+
+func (s *Store) ListArtifactRefs(_ context.Context, registryID string, q storage.RefQuery) ([]*storage.ArtifactRef, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var refs []*storage.ArtifactRef
+	for _, ref := range s.refs {
+		if ref.RegistryID == registryID && strings.HasPrefix(ref.ArtifactKey, q.Prefix) && (q.Origin == "" || q.Origin == ref.Origin) && strings.Contains(strings.ToLower(ref.ArtifactKey), strings.ToLower(q.Contains)) {
+			cp := *ref
+			refs = append(refs, &cp)
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].ArtifactKey < refs[j].ArtifactKey })
+	total := int64(len(refs))
+	refs = refs[min(max(q.Offset, 0), len(refs)):]
+	if q.Limit > 0 && q.Limit < len(refs) {
+		refs = refs[:q.Limit]
+	}
+	return refs, total, nil
 }

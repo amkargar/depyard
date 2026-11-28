@@ -129,7 +129,7 @@ const evictionPolicyOptions = computed(() => [
 function defaultUpstreamForType(regType: string): string {
   if (regType === 'flutter') return platformDefaults.value.flutter || 'https://storage.googleapis.com'
   if (regType === 'pub') return platformDefaults.value.pub || 'https://pub.dev'
-  return ''
+  return props.types.find((type) => type.type === regType)?.default_upstream_url ?? ''
 }
 
 function applyTypeConfigDefaults(regType?: RegistryTypeInfo) {

@@ -168,3 +168,53 @@ func TestIndependentQuotasAndDigestVerification(t *testing.T) {
 		t.Fatalf("reg-b should not be impacted by reg-a quota: %v", err)
 	}
 }
+
+// Publishing mutable indexes must reclaim old content without deleting a blob
+// still in use by another registry. Concurrent writers cannot both spend the
+// last bytes of the same logical quota.
+func TestIndexReplacementAndConcurrentQuota(t *testing.T) {
+	ctx := context.Background()
+	fs, err := storage.NewFSBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := storage.NewService(fs, memstore.New())
+	put := func(id, key, data string, q int64) error {
+		_, err := svc.PutArtifact(ctx, storage.PutArtifactInput{RegistryID: id, ArtifactKey: key, Reader: bytes.NewBufferString(data), Origin: storage.OriginHosted, RegistryQuota: q})
+		return err
+	}
+	for _, id := range []string{"a", "b"} {
+		if err := put(id, "index", "old", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"a", "b"} {
+		if err := put(id, "index", "new", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.VerifyArtifact(ctx, "b", "index"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stats, err := svc.GetGlobalStats(ctx)
+	if err != nil || stats.PhysicalBlobCount != 1 || stats.LogicalRefCount != 2 {
+		t.Fatal(stats, err)
+	}
+	ch := make(chan error, 2)
+	go func() { ch <- put("c", "one", "1111", 4) }()
+	go func() { ch <- put("c", "two", "2222", 4) }()
+	var ok, over int
+	for i := 0; i < 2; i++ {
+		switch err := <-ch; {
+		case err == nil:
+			ok++
+		case errors.Is(err, storage.ErrQuotaExceeded):
+			over++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if ok != 1 || over != 1 {
+		t.Fatal("quota not enforced atomically")
+	}
+}

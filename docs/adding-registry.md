@@ -21,7 +21,9 @@ Shared Core Services (storage, cache, upstream, auth, metrics, audit, registry)
 Persistence & Infrastructure (MongoDB, filesystem blob store)
 ```
 
-Create a new isolated package under `backend/internal/registry/<type>/` (for example, `backend/internal/registry/gomod/`).
+For a format whose wire protocol **is a repository file tree**, add a descriptor in `internal/registry/layout`. It uses `internal/registry/repository` for authenticated PUT, read-through GET/HEAD, quotas, byte ranges and persisted references. For a protocol with handshakes or custom metadata, supply a `repository.Format.Routes` adapter instead (e.g. `gitlfs` or `nuget`). The composition root lists these in `cmd/server/formats.go`. The core router and database adapters do not switch on format IDs.
+
+For a format that needs its own metadata model, create a new isolated package under `backend/internal/registry/<type>/` (for example, `backend/internal/registry/gomod/`).
 
 ---
 

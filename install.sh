@@ -70,7 +70,9 @@ Options:
   -h, --help             Show this help.
 
 Environment:
-  HTTP_PORT, ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
+  BIND_HOST, BIND_PORT (overrides HTTP_PORT), HTTP_PORT, PUBLIC_BASE_URL
+  TLS_CERT_DIR (host), TLS_CERT_FILE and TLS_KEY_FILE (container paths)
+  ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
   DEPWARD_INSTALL_DIR, DEPWARD_VERSION, NO_COLOR
 
 Installer downloads are hosted on GitHub Releases:
@@ -283,6 +285,31 @@ if [[ "$ADMIN_USERNAME_EXPLICIT" -eq 0 && -n "$existing_username" ]]; then ADMIN
 if [[ "$ADMIN_EMAIL_EXPLICIT" -eq 0 && -n "$existing_email" ]]; then ADMIN_EMAIL="$existing_email"; fi
 if [[ "$HTTP_PORT_EXPLICIT" -eq 0 && -n "$existing_port" ]]; then HTTP_PORT="$existing_port"; fi
 
+# Explicit environment settings override saved settings. An explicitly empty
+# certificate/key pair turns TLS off; never silently discard TLS on upgrade.
+BIND_HOST="${BIND_HOST-$(env_value BIND_HOST "$ENV_FILE")}"
+BIND_PORT="${BIND_PORT-$(env_value BIND_PORT "$ENV_FILE")}"
+TLS_CERT_DIR="${TLS_CERT_DIR-$(env_value TLS_CERT_DIR "$ENV_FILE")}"
+TLS_CERT_FILE="${TLS_CERT_FILE-$(env_value TLS_CERT_FILE "$ENV_FILE")}"
+TLS_KEY_FILE="${TLS_KEY_FILE-$(env_value TLS_KEY_FILE "$ENV_FILE")}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL-$(env_value PUBLIC_BASE_URL "$ENV_FILE")}"
+BIND_HOST="${BIND_HOST:-0.0.0.0}"
+TLS_CERT_DIR="${TLS_CERT_DIR:-./certs}"
+port="${BIND_PORT:-$HTTP_PORT}"
+[[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port > 0 && 10#$port <= 65535 )) || fail "invalid bind port"
+[[ "$BIND_HOST" =~ ^[a-zA-Z0-9:.%-]+$ ]] || fail "invalid bind host"
+for path in "$TLS_CERT_DIR" "$TLS_CERT_FILE" "$TLS_KEY_FILE"; do
+  [[ "$path" =~ ^[a-zA-Z0-9_./-]*$ ]] || fail "invalid TLS path"
+done
+[[ -n "$TLS_CERT_FILE" && -n "$TLS_KEY_FILE" || -z "$TLS_CERT_FILE" && -z "$TLS_KEY_FILE" ]] || fail "set TLS_CERT_FILE and TLS_KEY_FILE together"
+public_url_re='^https?://[][a-zA-Z0-9.:/_-]+$'
+[[ -z "$PUBLIC_BASE_URL" || "$PUBLIC_BASE_URL" =~ $public_url_re ]] || fail "invalid public base URL"
+scheme=http
+[[ -z "$TLS_CERT_FILE" ]] || scheme=https
+host="$BIND_HOST"
+case "$host" in 0.0.0.0|::) host=localhost ;; *:*) host="[$host]" ;; esac
+web_url="${PUBLIC_BASE_URL:-$scheme://$host:$port}"
+
 PASSWORD_SOURCE=''
 if [[ -n "$ADMIN_PASSWORD" ]]; then
   PASSWORD_SOURCE='environment'
@@ -314,6 +341,12 @@ write_env_file() {
 # Edit this file to change settings; the managed Compose file is regenerated on each run.
 COMPOSE_PROJECT_NAME=${PROJECT_NAME}
 HTTP_PORT=${HTTP_PORT}
+BIND_HOST=${BIND_HOST}
+BIND_PORT=${BIND_PORT}
+TLS_CERT_DIR=${TLS_CERT_DIR}
+TLS_CERT_FILE=${TLS_CERT_FILE}
+TLS_KEY_FILE=${TLS_KEY_FILE}
+PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
 IMAGE_PREFIX=${IMAGE_PREFIX}
 DEPWARD_VERSION=${VERSION}
 ADMIN_USERNAME=${ADMIN_USERNAME}
@@ -354,6 +387,7 @@ services:
       MONGODB_URI: mongodb://mongodb:27017
       MONGODB_DATABASE: mirror_registry
       DATA_DIR: /data
+      PUBLIC_BASE_URL: \${PUBLIC_BASE_URL:-}
       ENABLE_ROOT_COMPAT_ROUTE: "true"
       DEFAULT_REGISTRY_SLUG: pub-public
       DEFAULT_REGISTRY_NAME: Pub Public Mirror
@@ -395,8 +429,15 @@ services:
         condition: service_healthy
     environment:
       BACKEND_UPSTREAM: backend:8080
+      TLS_CERT_FILE: \${TLS_CERT_FILE:-}
+      TLS_KEY_FILE: \${TLS_KEY_FILE:-}
+    volumes:
+      - \${TLS_CERT_DIR:-./certs}:/run/depyard/tls:ro
     ports:
-      - "\${HTTP_PORT:-80}:80"
+      - target: 80
+        published: "\${BIND_PORT:-\${HTTP_PORT:-80}}"
+        host_ip: "\${BIND_HOST:-0.0.0.0}"
+        protocol: tcp
 
 volumes:
   mongo_data:
@@ -446,7 +487,7 @@ print_header() {
 print_ready() {
   printf '%sDepyard %s is ready.%s\n' "$GREEN" "$VERSION" "$RESET"
   printf '\n'
-  printf '  %-11s %s\n' 'Web UI:' "http://localhost:${HTTP_PORT}"
+  printf '  %-11s %s\n' 'Web UI:' "$web_url"
   printf '  %-11s %s\n' 'Username:' "$ADMIN_USERNAME"
   if [[ "$PASSWORD_SOURCE" == "generated" ]]; then
     printf '  %-11s %s\n' 'Password:' "$ADMIN_PASSWORD"
@@ -456,7 +497,7 @@ print_ready() {
   printf 'Next steps:\n'
   printf '  1. Sign in and change your password: My Account -> Profile\n'
   printf '  2. Enable the registries you need: Admin -> Registries\n'
-  printf '     (Pub, Flutter, Go, PyPI and npm are added but disabled by default.)\n'
+  printf '     (The first-install registry catalogue is disabled by default.)\n'
   if [[ "$PASSWORD_SOURCE" == "generated" ]]; then
     printf '\n  The password was shown once and saved in %s\n' "$ENV_FILE"
   fi
@@ -466,7 +507,7 @@ print_ready() {
 print_existing() {
   printf '%sDepyard %s is ready.%s\n' "$GREEN" "$VERSION" "$RESET"
   printf '\n'
-  printf '  %-11s %s\n' 'Web UI:' "http://localhost:${HTTP_PORT}"
+  printf '  %-11s %s\n' 'Web UI:' "$web_url"
   printf '  %-11s %s\n' 'Config:' "$ENV_FILE"
   printf '\n'
   if [[ "$PASSWORD_SOURCE" == "environment" ]]; then

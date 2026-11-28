@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"sort"
@@ -348,9 +349,10 @@ func (m *Manager) GetRuntimeBySlug(slug string) (*RuntimeInstance, bool) {
 
 func (m *Manager) GetRuntimeByHostname(host string) (*RuntimeInstance, bool) {
 	h := strings.ToLower(strings.TrimSpace(host))
-	if idx := strings.IndexByte(h, ':'); idx != -1 {
-		h = h[:idx]
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
 	}
+	h = strings.Trim(h, "[]")
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	rt, ok := m.byHost[h]

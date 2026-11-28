@@ -76,6 +76,20 @@ out="$(run_installer "$fresh" --version v1.4.0 --http-port 7070)"
 grep -q '^HTTP_PORT=7070$' "$fresh/.env"
 check 'explicit port override'
 
+# The generated Compose stack and .env also support a single TLS-only public listener.
+tls="$WORK/tls"
+out="$(TLS_CERT_FILE=/run/depyard/tls/cert.pem TLS_KEY_FILE=/run/depyard/tls/key.pem \
+  BIND_HOST=127.0.0.1 BIND_PORT=9443 run_installer "$tls" --version v1.4.0)"
+[[ "$out" == *'https://127.0.0.1:9443'* ]]
+grep -Fq 'host_ip: "${BIND_HOST:-0.0.0.0}"' "$tls/docker-compose.yml"
+cp "$tls/.env" "$WORK/tls.env"
+run_installer "$tls" --version v1.4.0 >/dev/null
+diff -q "$WORK/tls.env" "$tls/.env" >/dev/null
+if TLS_KEY_FILE='' run_installer "$tls" --version v1.4.0 >/dev/null 2>&1; then
+  echo 'partial TLS configuration accepted' >&2; exit 1
+fi
+check 'listener settings survive upgrades; incomplete TLS fails closed'
+
 # Offline install uses the archive beside the script and verifies its checksum.
 offline="$WORK/offline"
 mkdir -p "$offline"

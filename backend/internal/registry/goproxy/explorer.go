@@ -65,7 +65,7 @@ func (r *GoRegistry) handleGetModuleDetail(w http.ResponseWriter, req *http.Requ
 		return
 	}
 	modulePath := strings.Trim(req.PathValue("path"), "/")
-	if modulePath == "" || !isValidModulePath(modulePath) {
+	if modulePath == "" || !isValidModulePath(strings.ToLower(modulePath)) {
 		writeGoError(w, http.StatusNotFound, "NotFound", "invalid module path")
 		return
 	}

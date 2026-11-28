@@ -29,7 +29,7 @@ Registries are added and configured in the admin console at runtime. Every insta
 
 ## Why teams use it
 
-**One home for every ecosystem.** Pub, Flutter Storage, Go modules, PyPI, and npm registries run on the same platform, with a public explorer for each one.
+**One home for packages and builds.** Serve language packages, OS repositories, container images, LFS objects and Hub snapshots from isolated registries.
 
 **Proxy, host, or hybrid.** Choose how each registry behaves: cache packages from an upstream, publish your own artifacts, or do both.
 
@@ -39,15 +39,7 @@ Registries are added and configured in the admin console at runtime. Every insta
 
 ## Supported ecosystems
 
-**Pub** serves the official Dart and Flutter Pub v2 protocol in proxy, hosted, and hybrid modes, including `dart pub publish`.
-
-**Flutter Storage** mirrors `FLUTTER_STORAGE_BASE_URL` releases, engine artifacts, Dart archives, and Gradle storage, with a per-version SDK registry and configurable regional upstreams.
-
-**Go** implements the standard `GOPROXY` protocol, caching module metadata, `go.mod` files, and source zips from any compatible upstream.
-
-**Python** implements the PyPI Simple Repository API for `pip`, `uv`, and Poetry, plus publishing through the legacy upload API used by `twine`.
-
-**npm** serves full and install-optimized packuments, scoped packages, tarballs, and `npm publish` / `npm unpublish` in hosted and hybrid modes.
+The [implementation checklist and client guide](docs/registry-checklist.md) covers **22 hosted/proxy formats**: Alpine, Cargo, Composer, Conan (1.x and 2), Conda, CRAN, Debian, Docker/OCI, Git LFS, Go modules, Helm, Hugging Face, Ivy, Maven, Nix, npm, NuGet, Pacman, Pub, PyPI, RPM and RubyGems. It distinguishes native publish protocols from hosting a prepared repository tree. Flutter SDK Storage is also available as a separate mirror.
 
 ## Quick start
 
@@ -58,7 +50,7 @@ curl -fsSL https://github.com/amkargar/depyard/releases/latest/download/install.
 bash install.sh
 ```
 
-Already have Docker? Clone this repository and start the Compose stack instead. The web UI is available at `http://localhost` (or set `HTTP_PORT=8080` to use another port).
+Already have Docker? Clone this repository and start the Compose stack instead. The web UI is available at `http://localhost` (or set `BIND_HOST=127.0.0.1 BIND_PORT=8080` to publish only on loopback). See [bind address, HTTPS and PEM certificate configuration](docs/registry-checklist.md#bind-and-tls-examples) and [.env.example](.env.example).
 
 ```bash
 git clone https://github.com/amkargar/depyard.git

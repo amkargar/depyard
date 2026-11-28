@@ -36,6 +36,11 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg := config.Load()
+	tlsConfig, err := cfg.ListenerConfig()
+	if err != nil {
+		logger.Error("invalid listener configuration", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -183,25 +188,12 @@ func main() {
 	}
 	regManager := registry.NewManager(instanceStore, deps)
 
-	if err := regManager.RegisterType(pub.Registration(pubStore)); err != nil {
-		logger.Error("failed to register pub registry type", "error", err)
-		os.Exit(1)
-	}
-	if err := regManager.RegisterType(flutter.Registration(flutterStore)); err != nil {
-		logger.Error("failed to register flutter storage registry type", "error", err)
-		os.Exit(1)
-	}
-	if err := regManager.RegisterType(goproxy.Registration(goStore)); err != nil {
-		logger.Error("failed to register go module proxy registry type", "error", err)
-		os.Exit(1)
-	}
-	if err := regManager.RegisterType(pypi.Registration(pypiStore)); err != nil {
-		logger.Error("failed to register pypi registry type", "error", err)
-		os.Exit(1)
-	}
-	if err := regManager.RegisterType(npm.Registration(npmStore)); err != nil {
-		logger.Error("failed to register npm registry type", "error", err)
-		os.Exit(1)
+	for _, reg := range append(objectFormats(), pub.Registration(pubStore), flutter.Registration(flutterStore),
+		goproxy.Registration(goStore), pypi.Registration(pypiStore), npm.Registration(npmStore)) {
+		if err := regManager.RegisterType(reg); err != nil {
+			logger.Error("failed to register registry type", "type", reg.Type, "error", err)
+			os.Exit(1)
+		}
 	}
 
 	// Load all persisted registry instances
@@ -279,6 +271,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
+		TLSConfig:         tlsConfig,
 		Handler:           srv,
 		ReadHeaderTimeout: 15 * time.Second,
 	}
@@ -293,11 +286,16 @@ func main() {
 	}()
 
 	logger.Info("depyard listening",
-		"addr", cfg.ListenAddr,
+		"addr", cfg.ListenAddr, "tls", tlsConfig != nil,
 		"installed_types", len(regManager.ListTypes()),
 		"root_compat_route", defaultSettings.EnableRootCompatRoute,
 	)
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if tlsConfig != nil {
+		err = httpServer.ListenAndServeTLS("", "")
+	} else {
+		err = httpServer.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server error", "error", err)
 		os.Exit(1)
 	}
@@ -460,6 +458,21 @@ func seedDefaultInstances(ctx context.Context, logger *slog.Logger, cfg config.C
 			logger.Info("seeded default flutter storage instance", "slug", flInst.Slug, "type", flInst.Type, "mode", flInst.Mode)
 		}
 	}
+	for _, reg := range objectFormats() {
+		mode := registry.ModeHybrid
+		if reg.DefaultUpstreamURL == "" {
+			mode = registry.ModeHosted
+		}
+		_, err := mgr.CreateInstance(ctx, &registry.Instance{Name: reg.DisplayName, Slug: reg.Type, Type: reg.Type,
+			Description: reg.Description, Mode: mode, UpstreamURL: reg.DefaultUpstreamURL, Enabled: defaultSeedEnabled,
+			Visibility: registry.VisibilityPublic, AuthPolicy: registry.AuthPolicy{AllowAnonymousRead: true, RequireAuthPublish: true},
+			CachePolicy: registry.DefaultCachePolicy(), IsDefault: reg.Type == "oci",
+		})
+		if err != nil {
+			logger.Warn("could not seed registry instance", "type", reg.Type, "error", err)
+		}
+	}
+
 }
 
 func seedDemoData(ctx context.Context, logger *slog.Logger, manager *registry.Manager, authSvc *auth.Service) {
