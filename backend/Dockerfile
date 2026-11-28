@@ -11,7 +11,7 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /out/depyard /usr/local/bin/depyard
-ENV LISTEN_ADDR=0.0.0.0:8080
+ENV BIND_HOST=0.0.0.0 BIND_PORT=8080
 ENV DATA_DIR=/data
 VOLUME ["/data"]
 EXPOSE 8080

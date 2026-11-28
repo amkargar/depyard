@@ -44,6 +44,12 @@ type WriteResult struct {
 // Write streams from r to a temporary file, computes its SHA-256 digest, verifies expectedDigest
 // (if non-empty) and maxBytes (if > 0), fsyncs, and atomically commits the blob to its sharded path.
 func (s *FSBlobStore) Write(r io.Reader, expectedDigest string, maxBytes int64) (WriteResult, error) {
+	return s.writeAndBind(r, expectedDigest, maxBytes, nil)
+}
+
+// Bind the reference before releasing the digest lock. Otherwise concurrent GC
+// could unlink a just-deduplicated blob between Write and UpsertArtifactRef.
+func (s *FSBlobStore) writeAndBind(r io.Reader, expectedDigest string, maxBytes int64, bind func(WriteResult) error) (WriteResult, error) {
 	expectedDigest = strings.ToLower(strings.TrimSpace(expectedDigest))
 	if expectedDigest != "" && !IsValidSHA256(expectedDigest) {
 		return WriteResult{}, ErrInvalidDigest
@@ -96,28 +102,22 @@ func (s *FSBlobStore) Write(r io.Reader, expectedDigest string, maxBytes int64) 
 		return WriteResult{}, err
 	}
 
-	// Content deduplication: if the blob already exists with matching size, discard temp file.
+	result := WriteResult{Digest: digest, SizeBytes: written}
 	if info, statErr := os.Stat(finalPath); statErr == nil && info.Size() == written {
-		return WriteResult{
-			Digest:       digest,
-			SizeBytes:    written,
-			Deduplicated: true,
-		}, nil
+		result.Deduplicated = true
+	} else {
+		if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
+			return WriteResult{}, fmt.Errorf("create shard dir: %w", err)
+		}
+		if err := os.Rename(tmpPath, finalPath); err != nil {
+			return WriteResult{}, fmt.Errorf("atomic commit blob: %w", err)
+		}
+		cleanup = false
 	}
-
-	if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
-		return WriteResult{}, fmt.Errorf("create shard dir: %w", err)
+	if bind != nil {
+		return result, bind(result)
 	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return WriteResult{}, fmt.Errorf("atomic commit blob: %w", err)
-	}
-	cleanup = false
-
-	return WriteResult{
-		Digest:       digest,
-		SizeBytes:    written,
-		Deduplicated: false,
-	}, nil
+	return result, nil
 }
 
 // Open returns a streaming read-only file handle for the given SHA-256 digest.

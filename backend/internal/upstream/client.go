@@ -24,10 +24,11 @@ type Config struct {
 
 // RequestOptions allows per-registry or per-request overrides on top of global Client defaults.
 type RequestOptions struct {
-	Headers            map[string]string
-	Timeout            time.Duration
-	ProxyURL           string
-	InsecureSkipVerify bool
+	RedirectResponseHeaders []string
+	Headers                 map[string]string
+	Timeout                 time.Duration
+	ProxyURL                string
+	InsecureSkipVerify      bool
 }
 
 // ValidateProxyURL verifies an optional outbound proxy URL (http, https, socks5, socks5h).
@@ -192,15 +193,16 @@ func (c *Client) Get(ctx context.Context, rawURL string, headers map[string]stri
 
 // GetWithOptions performs a streaming GET request with optional per-registry proxy, TLS, headers, and timeout.
 func (c *Client) GetWithOptions(ctx context.Context, rawURL string, opts RequestOptions) (*http.Response, error) {
-	return c.doStreaming(ctx, http.MethodGet, rawURL, opts)
+	return c.DoWithOptions(ctx, http.MethodGet, rawURL, nil, opts)
 }
 
 // HeadWithOptions performs a HEAD request with optional per-registry proxy, TLS, headers, and timeout.
 func (c *Client) HeadWithOptions(ctx context.Context, rawURL string, opts RequestOptions) (*http.Response, error) {
-	return c.doStreaming(ctx, http.MethodHead, rawURL, opts)
+	return c.DoWithOptions(ctx, http.MethodHead, rawURL, nil, opts)
 }
 
-func (c *Client) doStreaming(ctx context.Context, method, rawURL string, opts RequestOptions) (*http.Response, error) {
+// DoWithOptions also supports protocol negotiations such as Git LFS batch POSTs.
+func (c *Client) DoWithOptions(ctx context.Context, method, rawURL string, body io.Reader, opts RequestOptions) (*http.Response, error) {
 	tr, ua, defTimeout, err := c.resolveTransport(opts.ProxyURL, opts.InsecureSkipVerify)
 	if err != nil {
 		return nil, err
@@ -216,7 +218,7 @@ func (c *Client) doStreaming(ctx context.Context, method, rawURL string, opts Re
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
 		if cancel != nil {
 			cancel()
@@ -226,13 +228,36 @@ func (c *Client) doStreaming(ctx context.Context, method, rawURL string, opts Re
 	applyHeaders(req, ua, opts.Headers)
 
 	// Use Timeout=0 on the shallow http.Client so streaming large blobs respects ctx deadline until Body.Close().
-	cl := &http.Client{Transport: tr}
+	// Some origins put representation metadata on the redirect to their CDN,
+	// rather than the final response. Retain only caller-selected fields.
+	redirectHeaders := make(http.Header)
+	cl := &http.Client{Transport: tr, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+		if next.Response != nil && len(via) == 1 {
+			for _, k := range opts.RedirectResponseHeaders {
+				if v := next.Response.Header.Get(k); v != "" {
+					redirectHeaders.Set(k, v)
+				}
+			}
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("too many upstream redirects")
+		}
+		// CDNs often receive signed download URLs. Never send registry credentials
+		// (including custom headers) to a different origin, even a subdomain.
+		if next.URL.Scheme != req.URL.Scheme || !strings.EqualFold(next.URL.Host, req.URL.Host) {
+			next.Header = make(http.Header)
+		}
+		return nil
+	}}
 	resp, err := cl.Do(req)
 	if err != nil {
 		if cancel != nil {
 			cancel()
 		}
 		return nil, err
+	}
+	for k := range redirectHeaders {
+		resp.Header.Set(k, redirectHeaders.Get(k))
 	}
 	if cancel != nil {
 		resp.Body = &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}
@@ -270,7 +295,7 @@ func (c *Client) CheckHealthWithOptions(ctx context.Context, rawURL string, opts
 	}
 
 	start := time.Now()
-	resp, err := c.doStreaming(ctx, http.MethodHead, rawURL, opts)
+	resp, err := c.DoWithOptions(ctx, http.MethodHead, rawURL, nil, opts)
 	if err != nil {
 		return HealthCheckResult{
 			Available: false,
@@ -282,7 +307,7 @@ func (c *Client) CheckHealthWithOptions(ctx context.Context, rawURL string, opts
 	_ = resp.Body.Close()
 
 	if resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented {
-		resp2, err2 := c.doStreaming(ctx, http.MethodGet, rawURL, opts)
+		resp2, err2 := c.DoWithOptions(ctx, http.MethodGet, rawURL, nil, opts)
 		if err2 != nil {
 			return HealthCheckResult{
 				Available: false,

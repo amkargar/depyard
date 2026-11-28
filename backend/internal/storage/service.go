@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,8 +14,9 @@ import (
 // Service coordinates content-addressed blob storage, reference counting,
 // per-registry quota enforcement, and safe garbage collection.
 type Service struct {
-	fs   *FSBlobStore
-	refs RefStore
+	fs            *FSBlobStore
+	refs          RefStore
+	registryLocks keyLocker
 }
 
 func NewService(fs *FSBlobStore, refs RefStore) *Service {
@@ -22,13 +24,16 @@ func NewService(fs *FSBlobStore, refs RefStore) *Service {
 }
 
 type PutArtifactInput struct {
-	RegistryID        string
-	ArtifactKey       string
-	Origin            string // OriginHosted or OriginCached
-	ExpectedDigest    string // Optional expected SHA-256 hex digest
-	MaxArtifactBytes  int64  // Optional per-artifact max size (0 = unlimited)
-	RegistryQuota     int64  // Optional per-registry logical storage quota in bytes (0 = unlimited)
-	Reader            io.Reader
+	ExpectedSize     *int64 // optional exact size (allows empty artifacts)
+	Immutable        bool   // reject attempts to replace this key with different bytes
+	Headers          map[string]string
+	RegistryID       string
+	ArtifactKey      string
+	Origin           string // OriginHosted or OriginCached
+	ExpectedDigest   string // Optional expected SHA-256 hex digest
+	MaxArtifactBytes int64  // Optional per-artifact max size (0 = unlimited)
+	RegistryQuota    int64  // Optional per-registry logical storage quota in bytes (0 = unlimited)
+	Reader           io.Reader
 }
 
 type PutArtifactResult struct {
@@ -46,29 +51,53 @@ func (s *Service) PutArtifact(ctx context.Context, in PutArtifactInput) (PutArti
 		return PutArtifactResult{}, fmt.Errorf("invalid origin %q", origin)
 	}
 
-	// Stream and hash to content-addressed store atomically.
-	wr, err := s.fs.Write(in.Reader, in.ExpectedDigest, in.MaxArtifactBytes)
+	var ref *ArtifactRef
+	var previousDigest string
+	wr, err := s.fs.writeAndBind(in.Reader, in.ExpectedDigest, in.MaxArtifactBytes, func(w WriteResult) error {
+		// Serialize only the quota check and reference commit, not the upload.
+		unlock := s.registryLocks.Lock(in.RegistryID)
+		defer unlock()
+		var err error
+		ref, previousDigest, err = s.bind(ctx, in, w)
+		return err
+	})
 	if err != nil {
+		if wr.Digest != "" {
+			s.cleanupIfUnreferenced(ctx, wr.Digest)
+		}
 		return PutArtifactResult{}, err
 	}
+	if previousDigest != "" && previousDigest != wr.Digest {
+		s.cleanupIfUnreferenced(ctx, previousDigest)
+	}
+	return PutArtifactResult{Ref: ref, Deduplicated: wr.Deduplicated}, nil
+}
 
-	// Check if an existing reference for this exact key already exists (to compute net quota delta).
+func (s *Service) bind(ctx context.Context, in PutArtifactInput, wr WriteResult) (*ArtifactRef, string, error) {
+	if in.ExpectedSize != nil && *in.ExpectedSize != wr.SizeBytes {
+		return nil, "", ErrSizeMismatch
+	}
+	var previousDigest string
 	var existingSize int64
 	if existing, err := s.refs.GetArtifactRef(ctx, in.RegistryID, in.ArtifactKey); err == nil && existing != nil {
+		if in.Immutable && existing.Digest != wr.Digest {
+			return nil, "", ErrArtifactConflict
+		}
 		existingSize = existing.SizeBytes
+		previousDigest = existing.Digest
+	} else if err != nil && !errors.Is(err, ErrRefNotFound) {
+		return nil, "", err
 	}
 
 	// Enforce per-registry logical storage quota independently of physical deduplication.
 	if in.RegistryQuota > 0 {
 		stats, err := s.refs.GetRegistryStorageStats(ctx, in.RegistryID)
 		if err != nil {
-			s.cleanupIfUnreferenced(ctx, wr.Digest)
-			return PutArtifactResult{}, err
+			return nil, "", err
 		}
 		projected := stats.LogicalBytes - existingSize + wr.SizeBytes
 		if projected > in.RegistryQuota {
-			s.cleanupIfUnreferenced(ctx, wr.Digest)
-			return PutArtifactResult{}, ErrQuotaExceeded
+			return nil, "", ErrQuotaExceeded
 		}
 	}
 
@@ -80,30 +109,27 @@ func (s *Service) PutArtifact(ctx context.Context, in PutArtifactInput) (PutArti
 		LastAccessedAt: now,
 	}
 	if err := s.refs.UpsertBlob(ctx, blob); err != nil {
-		s.cleanupIfUnreferenced(ctx, wr.Digest)
-		return PutArtifactResult{}, fmt.Errorf("upsert blob metadata: %w", err)
+		return nil, "", fmt.Errorf("upsert blob metadata: %w", err)
 	}
 
 	ref := &ArtifactRef{
 		ID:             newID(),
+		UpdatedAt:      now,
+		Headers:        in.Headers,
 		RegistryID:     in.RegistryID,
 		ArtifactKey:    in.ArtifactKey,
 		Digest:         wr.Digest,
 		SizeBytes:      wr.SizeBytes,
-		Origin:         origin,
-		Protected:      origin == OriginHosted,
+		Origin:         in.Origin,
+		Protected:      in.Origin == OriginHosted,
 		CreatedAt:      now,
 		LastAccessedAt: now,
 	}
 	if err := s.refs.UpsertArtifactRef(ctx, ref); err != nil {
-		s.cleanupIfUnreferenced(ctx, wr.Digest)
-		return PutArtifactResult{}, fmt.Errorf("upsert artifact ref: %w", err)
+		return nil, "", fmt.Errorf("upsert artifact ref: %w", err)
 	}
 
-	return PutArtifactResult{
-		Ref:          ref,
-		Deduplicated: wr.Deduplicated,
-	}, nil
+	return ref, previousDigest, nil
 }
 
 // OpenArtifact opens a streaming reader for an artifact bound to a specific registry instance.
@@ -255,4 +281,9 @@ func newID() string {
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// ListArtifactRefs enumerates names inside one registry and prefix, never global blob digests.
+func (s *Service) ListArtifactRefs(ctx context.Context, registryID string, q RefQuery) ([]*ArtifactRef, int64, error) {
+	return s.refs.ListArtifactRefs(ctx, registryID, q)
 }

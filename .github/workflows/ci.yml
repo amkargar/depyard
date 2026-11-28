@@ -31,6 +31,8 @@ jobs:
         run: go vet ./...
 
       - name: Test with race detector
+        env:
+          DEPYARD_TEST_APT_GET: /usr/bin/apt-get
         run: go test -race -count=1 ./...
 
   frontend:
@@ -67,6 +69,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Compose manifests and installer
+        run: |
+          docker compose config -q
+          docker compose -f docker-compose.release.yml config -q
+          bash tests/installer_test.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -84,6 +92,21 @@ jobs:
         with:
           context: .
           file: ./nginx/Dockerfile
+          load: true
+          tags: depyard-gateway:test
           push: false
           cache-from: type=gha,scope=nginx
           cache-to: type=gha,mode=max,scope=nginx
+
+      - name: Validate HTTP and TLS gateway listeners
+        run: |
+          certs=$(mktemp -d)
+          trap 'rm -rf "$certs"' EXIT
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+            -keyout "$certs/key.pem" -out "$certs/cert.pem"
+          gateway() {
+            docker run --rm -e BACKEND_UPSTREAM=127.0.0.1:8080 -v "$certs:/tls:ro" "$@" depyard-gateway:test nginx -t
+          }
+          gateway
+          gateway -e TLS_CERT_FILE=/tls/cert.pem -e TLS_KEY_FILE=/tls/key.pem
+          if gateway -e TLS_CERT_FILE=/tls/cert.pem; then exit 1; fi

@@ -16,7 +16,7 @@ upstream mirror_backend {
 }
 
 server {
-    listen 80 default_server;
+    include /etc/nginx/includes/listener.conf;
     server_name _;
 
     root /usr/share/nginx/html;
@@ -32,6 +32,14 @@ server {
     # Health check
     location = /healthz {
         include /etc/nginx/includes/proxy_params.conf;
+        proxy_pass http://mirror_backend;
+    }
+
+    # Docker clients always discover their registry at /v2/ on a host.
+    location ^~ /v2/ {
+        include /etc/nginx/includes/proxy_params.conf;
+        proxy_buffering off;
+        proxy_request_buffering off;
         proxy_pass http://mirror_backend;
     }
 
@@ -130,19 +138,10 @@ server {
     }
 }
 
-# Example dedicated hostname routing for future registry protocols requiring root-level hostnames:
-#
-# server {
-#     listen 80;
-#     server_name registry-host.example.com;
-#
-#     client_max_body_size 0;
-#     merge_slashes off;
-#
-#     location / {
-#         include /etc/nginx/includes/proxy_params.conf;
-#         proxy_buffering off;
-#         proxy_request_buffering off;
-#         proxy_pass http://mirror_backend;
-#     }
-# }
+# Internal liveness check: does not require the container to trust a private CA
+# or bypass certificate verification. This port is never published.
+server {
+    listen 127.0.0.1:8081;
+    location = /healthz { proxy_pass http://mirror_backend; }
+    location / { return 404; }
+}

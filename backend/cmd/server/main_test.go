@@ -52,6 +52,11 @@ func seedTestManager(t *testing.T) (*registry.Manager, config.Config) {
 			t.Fatalf("RegisterType(%s): %v", typeName, err)
 		}
 	}
+	for _, reg := range objectFormats() {
+		if err := mgr.RegisterType(reg); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return mgr, config.Load()
 }
 
@@ -71,18 +76,21 @@ func TestSeedDefaultInstancesAreAddedButDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstances: %v", err)
 	}
-	if len(instances) != 5 {
-		t.Fatalf("expected all 5 default registries to be added, got %d", len(instances))
+	if len(instances) != 23 {
+		t.Fatalf("expected all 23 default registries to be added, got %d", len(instances))
 	}
 	wantTypes := map[string]bool{
 		pub.RegistryType: false, flutter.RegistryType: false, goproxy.RegistryType: false,
 		pypi.RegistryType: false, npm.RegistryType: false,
 	}
+	for _, t := range []string{"alpine", "cargo", "composer", "conan", "conda", "cran", "debian", "oci", "gitlfs", "helm", "huggingface", "ivy", "maven", "nix", "nuget", "pacman", "rpm", "rubygems"} {
+		wantTypes[t] = false
+	}
 	for _, inst := range instances {
 		if inst.Enabled {
 			t.Errorf("default instance %q must be added disabled", inst.Slug)
 		}
-		if !inst.IsDefault {
+		if !inst.IsDefault && (inst.Type == "pub" || inst.Type == "goproxy" || inst.Type == "flutter" || inst.Type == "pypi" || inst.Type == "npm" || inst.Type == "oci") {
 			t.Errorf("default instance %q should remain eligible for compat routing", inst.Slug)
 		}
 		if _, known := wantTypes[inst.Type]; !known {
@@ -131,8 +139,8 @@ func TestSeedDefaultInstancesRespectsSeedFlags(t *testing.T) {
 	seedDefaultInstances(ctx, discardLogger(), cfg, mgr)
 
 	instances, _ := mgr.ListInstances(ctx)
-	if len(instances) != 4 {
-		t.Fatalf("expected 4 seeded instances with SEED_NPM=false, got %d", len(instances))
+	if len(instances) != 22 {
+		t.Fatalf("expected 22 seeded instances with SEED_NPM=false, got %d", len(instances))
 	}
 	for _, inst := range instances {
 		if inst.Type == npm.RegistryType {

@@ -274,3 +274,24 @@ func EscapeModulePath(p string) string {
 func IsPseudoVersion(v string) bool {
 	return isPseudoVersion(v)
 }
+
+// The wire representation is lowercase; the canonical module name (including
+// uppercase letters) is used in zip entry names, policy checks and metadata.
+func decodeProxyPath(s string) (string, bool) {
+	if !isValidModulePath(strings.ReplaceAll(s, "!", "")) {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '!' {
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+		if i >= len(s) || s[i] < 'a' || s[i] > 'z' {
+			return "", false
+		}
+		b.WriteByte(s[i] - 'a' + 'A')
+	}
+	return b.String(), true
+}

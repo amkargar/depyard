@@ -38,6 +38,11 @@ func (r *GoRegistry) buildHandler() http.Handler {
 			return
 		}
 
+		if req.Method == http.MethodPut && r.inst.Mode != registry.ModeProxy {
+			r.importZip(w, req)
+			return
+		}
+
 		if req.Method != http.MethodGet && req.Method != http.MethodHead {
 			writeGoError(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "the GOPROXY protocol only supports GET")
 			return
@@ -78,13 +83,19 @@ func splitProxyPath(rawPath string) (modulePath, file string, ok bool) {
 	if modulePath == "" || file == "" || strings.Contains(file, "/") {
 		return "", "", false
 	}
-	if !isValidModulePath(modulePath) {
-		return "", "", false
-	}
-	return modulePath, file, true
+	modulePath, ok = decodeProxyPath(modulePath)
+	return modulePath, file, ok
 }
 
 func (r *GoRegistry) authorizeRequest(w http.ResponseWriter, req *http.Request) bool {
+	name, _, ok := splitProxyPath(req.URL.Path)
+	if !ok {
+		name = req.PathValue("path")
+	}
+	return r.authorize(w, req, name, auth.PermissionRead)
+}
+
+func (r *GoRegistry) authorize(w http.ResponseWriter, req *http.Request, name string, perm auth.Permission) bool {
 	principal, err := r.deps.Auth.AuthenticateRequest(req.Context(), req)
 	if err != nil {
 		writeGoError(w, http.StatusUnauthorized, "Unauthorized", err.Error())
@@ -92,7 +103,7 @@ func (r *GoRegistry) authorizeRequest(w http.ResponseWriter, req *http.Request) 
 	}
 	if err := r.deps.Auth.Authorize(principal, auth.AuthRequest{
 		Policy:     r.inst.AccessPolicy(),
-		Permission: auth.PermissionRead,
+		Permission: perm, Namespace: name,
 	}); err != nil {
 		if errors.Is(err, auth.ErrUnauthenticated) {
 			writeGoError(w, http.StatusUnauthorized, "Unauthorized", "authentication required for this Go proxy")
@@ -194,7 +205,8 @@ func (r *GoRegistry) serveVersionInfo(w http.ResponseWriter, req *http.Request, 
 }
 
 func (r *GoRegistry) serveGoMod(w http.ResponseWriter, req *http.Request, modulePath, version string) {
-	if _, err := r.resolveVersion(req.Context(), modulePath, version); err != nil {
+	ver, err := r.resolveVersion(req.Context(), modulePath, version)
+	if err != nil {
 		writeUpstreamFailure(w, err, fmt.Sprintf("version %s of module %q not found", version, modulePath))
 		return
 	}
@@ -208,6 +220,11 @@ func (r *GoRegistry) serveGoMod(w http.ResponseWriter, req *http.Request, module
 			_, _ = io.Copy(w, f)
 			return
 		}
+	}
+
+	if r.inst.Mode == registry.ModeHosted || ver.Origin == storage.OriginHosted {
+		writeGoError(w, 404, "NotFound", "go.mod unavailable")
+		return
 	}
 
 	data, err := r.fetchGoMod(req.Context(), modulePath, version)

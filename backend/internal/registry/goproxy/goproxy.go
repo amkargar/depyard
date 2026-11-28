@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amkargar/depyard/backend/internal/registry"
@@ -97,13 +98,13 @@ func ParseConfig(raw map[string]any) (Config, error) {
 
 // GoCapabilities returns the declared capabilities of the Go module proxy registry type.
 //
-// A Go proxy is a read-only mirror of the module ecosystem: there is no "publish a module"
-// operation in the GOPROXY protocol, so Hosted and Publish are false.
+// Go clients use the read-only GOPROXY protocol. Hosted instances additionally
+// accept authenticated imports of module-format zip files.
 func GoCapabilities() registry.Capabilities {
 	return registry.Capabilities{
 		Proxy:                 true,
-		Hosted:                false,
-		Publish:               false,
+		Hosted:                true,
+		Publish:               true,
 		Search:                false,
 		ListVersions:          true,
 		CacheWarm:             true,
@@ -120,7 +121,7 @@ func Registration(store MetadataStore) registry.Registration {
 	return registry.Registration{
 		Type:               RegistryType,
 		DisplayName:        "Go Module Proxy",
-		Description:        "Go module proxy (GOPROXY protocol): proxies module metadata, go.mod files, and source zips from proxy.golang.org or any compatible upstream.",
+		Description:        "Go module proxy (GOPROXY protocol): mirrors upstream modules and serves authenticated imports of Go module zips.",
 		DefaultUpstreamURL: DefaultUpstreamURL,
 		Capabilities:       GoCapabilities(),
 		ConfigHints: []registry.ConfigFieldHint{
@@ -176,11 +177,12 @@ func Registration(store MetadataStore) registry.Registration {
 
 // GoRegistry implements the GOPROXY protocol for a single configured registry instance.
 type GoRegistry struct {
-	inst    *registry.Instance
-	cfg     Config
-	deps    registry.ServiceDeps
-	store   MetadataStore
-	handler http.Handler
+	importMu sync.RWMutex
+	inst     *registry.Instance
+	cfg      Config
+	deps     registry.ServiceDeps
+	store    MetadataStore
+	handler  http.Handler
 }
 
 func New(inst *registry.Instance, deps registry.ServiceDeps, store MetadataStore) (*GoRegistry, error) {

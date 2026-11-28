@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +14,8 @@ import (
 // It remains strictly ecosystem-agnostic; registry-specific settings live on each registry instance.
 type Config struct {
 	ListenAddr                string
+	TLSCertFile               string
+	TLSKeyFile                string
 	PublicBaseURL             string
 	DataDir                   string
 	StorageBackend            string // "mongo" (default) or "memory" (dev/testing)
@@ -60,7 +63,8 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() Config {
 	return Config{
-		ListenAddr:                getEnv("LISTEN_ADDR", "0.0.0.0:8080"),
+		ListenAddr:  getEnv("LISTEN_ADDR", net.JoinHostPort(getEnv("BIND_HOST", "0.0.0.0"), getEnv("BIND_PORT", "8080"))),
+		TLSCertFile: getEnv("TLS_CERT_FILE", ""), TLSKeyFile: getEnv("TLS_KEY_FILE", ""),
 		PublicBaseURL:             strings.TrimRight(getEnv("PUBLIC_BASE_URL", ""), "/"),
 		DataDir:                   getEnv("DATA_DIR", "./data"),
 		StorageBackend:            strings.ToLower(getEnv("STORAGE_BACKEND", "mongo")),

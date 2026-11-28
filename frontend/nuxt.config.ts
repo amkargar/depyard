@@ -41,6 +41,7 @@ export default defineNuxtConfig({
   nitro: {
     routeRules: {
       '/api/**': { proxy: `${backendTarget}/api/**` },
+      '/v2/**': { proxy: `${backendTarget}/v2/**` },
       '/r/**': { proxy: `${backendTarget}/r/**` },
       '/packages/**': { proxy: `${backendTarget}/packages/**` },
       '/flutter_infra_release/**': { proxy: `${backendTarget}/flutter_infra_release/**` },
