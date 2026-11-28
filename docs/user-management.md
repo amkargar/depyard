@@ -21,11 +21,15 @@ token model (see below), not in the role model.
 session token. The token is also set as the `mr_session` cookie, which is
 `HttpOnly` and `SameSite=Lax`.
 
-The session cookie carries the `Secure` attribute whenever the request reached
-the server over TLS — directly, or through a proxy that terminated TLS
-(`X-Forwarded-Proto: https`). Plain HTTP on loopback (`localhost`, `127.0.0.1`,
-`::1`) is the single exception, so that local development over plain HTTP keeps
-working. Everything else is marked `Secure`.
+The session cookie is `Secure` on HTTPS. On plain HTTP it omits `Secure`,
+including when you connect by LAN IP or hostname: browsers will not send a
+`Secure` cookie back over those connections. **Use [HTTPS](registry-checklist.md#bind-and-tls-examples)
+for external access** so that neither the password nor the session travels in cleartext.
+
+If a reverse proxy terminates TLS, have the public-facing proxy **overwrite**
+`X-Forwarded-Proto` with the browser-facing scheme (`https`), and forward
+`Set-Cookie` and `Cookie` unchanged. Use the same origin to sign in and open
+the dashboard; signing in at `localhost` does not sign you in at another host.
 
 Users can sign in with either a session cookie or an `Authorization: Bearer
 <token>` header. The `Authorization: Basic` header is also supported for package

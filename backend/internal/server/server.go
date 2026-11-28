@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/amkargar/depyard/backend/internal/admin"
+	"github.com/amkargar/depyard/backend/internal/httporigin"
 	"github.com/amkargar/depyard/backend/internal/registry"
 )
 
@@ -85,7 +86,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Dedicated hostname routing. Continuation URLs must stay on this host,
 	// even when the platform has a different canonical public base URL.
 	if rt, ok := s.manager.GetRuntimeByHostname(r.Host); ok {
-		s.dispatchToRuntime(w, r, rt, requestScheme(r)+"://"+r.Host, false)
+		s.dispatchToRuntime(w, r, rt, httporigin.Scheme(r)+"://"+r.Host, false)
 		return
 	}
 
@@ -187,15 +188,7 @@ func (s *Server) resolveOrigin(r *http.Request) string {
 	if host == "" {
 		return ""
 	}
-	return requestScheme(r) + "://" + host
-}
-
-func requestScheme(r *http.Request) string {
-	proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
-	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https") {
-		return "https"
-	}
-	return "http"
+	return httporigin.Scheme(r) + "://" + host
 }
 
 func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {
