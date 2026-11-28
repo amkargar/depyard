@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -158,67 +161,86 @@ func mustJSON(t *testing.T, v any) []byte {
 
 // --- Session cookie hardening ---
 
-func TestSessionCookieIsSecureOverTLS(t *testing.T) {
+// Use a non-loopback URL and let a cookie jar (not AddCookie) decide what to
+// send. Only the TCP connection is redirected to the local test server.
+func TestRemoteHTTPBrowserSession(t *testing.T) {
 	srv, _ := newAuthHarness(t)
-
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/admin/auth/login", bytes.NewReader(mustJSON(t, map[string]string{
-		"username": "admin",
-		"password": authTestPassword,
-	})))
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		t.Fatalf("new request: %v", err)
+		t.Fatal(err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	// Simulate a request that reached the server through a TLS-terminating proxy.
-	req.Header.Set("X-Forwarded-Proto", "https")
-
-	res, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("login: %v", err)
+	client := &http.Client{
+		Jar: jar,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, srv.Listener.Addr().String())
+		}},
 	}
-	defer res.Body.Close()
-
-	for _, c := range res.Cookies() {
-		if c.Name == auth.SessionCookieName {
-			if !c.Secure {
-				t.Fatal("expected the session cookie to carry the Secure attribute behind HTTPS")
-			}
-			if !c.HttpOnly {
-				t.Fatal("expected the session cookie to be HttpOnly")
-			}
-			return
+	defer client.CloseIdleConnections()
+	const origin = "http://registry.example.test:8080"
+	do := func(method, path string, body io.Reader, want int) {
+		t.Helper()
+		req, err := http.NewRequest(method, origin+path, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != want {
+			t.Fatalf("%s %s: got %d, want %d", method, path, res.StatusCode, want)
 		}
 	}
-	t.Fatal("no session cookie returned")
+	do("POST", "/api/admin/auth/login", bytes.NewReader(mustJSON(t, map[string]string{"username": "admin", "password": authTestPassword})), http.StatusOK)
+	do("GET", "/api/admin/auth/me", nil, http.StatusOK)
+	do("GET", "/api/admin/users", nil, http.StatusOK)
+	do("POST", "/api/admin/auth/logout", nil, http.StatusOK)
+	do("GET", "/api/admin/auth/me", nil, http.StatusUnauthorized)
 }
 
-func TestSessionCookieIsNotSecureOnLoopbackHTTP(t *testing.T) {
+func TestSessionCookieAttributes(t *testing.T) {
 	srv, _ := newAuthHarness(t)
-
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/admin/auth/login", bytes.NewReader(mustJSON(t, map[string]string{
-		"username": "admin",
-		"password": authTestPassword,
-	})))
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	res, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("login: %v", err)
-	}
-	defer res.Body.Close()
-
-	for _, c := range res.Cookies() {
-		if c.Name == auth.SessionCookieName {
-			if c.Secure {
-				t.Fatal("expected the session cookie to omit Secure for plain HTTP on loopback")
+	credentials := mustJSON(t, map[string]string{"username": "member", "password": authTestPassword})
+	for _, tt := range []struct {
+		name, origin, forwardedProto string
+		secure                       bool
+	}{
+		{"loopback HTTP", "http://localhost:8080", "", false},
+		{"forwarded HTTP", "http://192.0.2.10:8080", "http", false},
+		{"forwarded HTTPS", "http://backend:8080", "https", true},
+		{"forwarded HTTPS chain", "http://backend:8080", "HTTPS, http", true},
+		{"forwarded HTTP chain", "http://backend:8080", "http, https", false},
+		{"direct TLS cannot be downgraded", "https://registry.example.test", "http", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, action := range []string{"login", "logout"} {
+				req := httptest.NewRequest(http.MethodPost, tt.origin+"/api/admin/auth/"+action, bytes.NewReader(credentials))
+				req.Header.Set("Content-Type", "application/json")
+				req.URL.Scheme = "" // ordinary server requests carry the path, not an absolute URL
+				req.Header.Set("X-Forwarded-Proto", tt.forwardedProto)
+				w := httptest.NewRecorder()
+				srv.Config.Handler.ServeHTTP(w, req)
+				cookies := w.Result().Cookies()
+				if w.Code != http.StatusOK || len(cookies) != 1 || cookies[0].Name != auth.SessionCookieName {
+					t.Fatalf("%s: missing session cookie (status %d)", action, w.Code)
+				}
+				c := cookies[0]
+				if c.Secure != tt.secure {
+					t.Errorf("%s: Secure=%t, want %t", action, c.Secure, tt.secure)
+				}
+				if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Domain != "" || c.Path != "/" {
+					t.Errorf("%s: expected a host-only, HttpOnly, SameSite=Lax cookie on /", action)
+				}
+				if action == "logout" && (c.MaxAge >= 0 || c.Value != "") {
+					t.Fatal("logout did not expire cookie")
+				}
 			}
-			return
-		}
+		})
 	}
-	t.Fatal("no session cookie returned")
 }
 
 // --- Authentication vs authorization ---

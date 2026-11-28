@@ -1,8 +1,9 @@
-# Preserve incoming X-Forwarded-* headers when running behind an external TLS proxy,
-# otherwise fall back to the direct client scheme and Host (including port).
-map $http_x_forwarded_proto $forwarded_proto {
-    default $http_x_forwarded_proto;
-    ""      $scheme;
+# On the TLS listener a request header must not downgrade the session cookie.
+# On the HTTP listener preserve the original scheme set by an external proxy.
+map "$scheme:$http_x_forwarded_proto" $forwarded_proto {
+    ~^https:  https;
+    "http:"   http;
+    default   $http_x_forwarded_proto;
 }
 
 map $http_x_forwarded_host $forwarded_host {

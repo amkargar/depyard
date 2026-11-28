@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/amkargar/depyard/backend/internal/audit"
 	"github.com/amkargar/depyard/backend/internal/auth"
 	"github.com/amkargar/depyard/backend/internal/cache"
+	"github.com/amkargar/depyard/backend/internal/httporigin"
 	"github.com/amkargar/depyard/backend/internal/metrics"
 	"github.com/amkargar/depyard/backend/internal/registry"
 	"github.com/amkargar/depyard/backend/internal/storage"
@@ -342,7 +342,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    rawToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   requestIsSecure(r),
+		Secure:   httporigin.Scheme(r) == "https",
 		SameSite: http.SameSiteLaxMode,
 		Expires:  sess.ExpiresAt,
 	})
@@ -377,7 +377,7 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   requestIsSecure(r),
+		Secure:   httporigin.Scheme(r) == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -763,13 +763,6 @@ func (h *Handler) resolveBaseURL(r *http.Request, slug string) string {
 	if publicBase != "" {
 		return strings.TrimRight(publicBase, "/") + "/r/" + slug
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
-		scheme = strings.Split(proto, ",")[0]
-	}
 	host := r.Host
 	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
 		host = strings.Split(fwd, ",")[0]
@@ -777,7 +770,7 @@ func (h *Handler) resolveBaseURL(r *http.Request, slug string) string {
 	if host == "" {
 		return "/r/" + slug
 	}
-	return scheme + "://" + strings.TrimSpace(host) + "/r/" + slug
+	return httporigin.Scheme(r) + "://" + strings.TrimSpace(host) + "/r/" + slug
 }
 
 func (h *Handler) handleDeleteArtifact(w http.ResponseWriter, r *http.Request, principal *auth.Principal) {
@@ -1761,40 +1754,4 @@ func clientIP(r *http.Request) string {
 		return strings.TrimSpace(parts[0])
 	}
 	return r.RemoteAddr
-}
-
-// requestIsSecure reports whether the session cookie should carry the Secure
-// attribute.
-//
-// The cookie is marked Secure whenever the request reached the server over
-// TLS, either directly or through a proxy that terminated TLS. Plain HTTP on a
-// loopback address is the one exception: that is the local development setup,
-// where a Secure cookie would never be sent back by the browser and the user
-// would appear to be unable to sign in.
-func requestIsSecure(r *http.Request) bool {
-	if r == nil {
-		return true
-	}
-	if r.TLS != nil {
-		return true
-	}
-	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
-		return true
-	}
-	if r.URL != nil && strings.EqualFold(r.URL.Scheme, "https") {
-		return true
-	}
-	host := ""
-	if r.Host != "" {
-		host = r.Host
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.ToLower(strings.Trim(host, "[]"))
-	switch host {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0":
-		return false
-	}
-	return true
 }

@@ -72,10 +72,9 @@ since a token is an alternative credential.
 
 ### Secure cookie
 
-The session cookie gains `Secure` unless the request is plain HTTP on loopback,
-so local development over `http://localhost` keeps working while real
-deployments are protected. This is detected from the request rather than
-configured, to avoid a config knob that operators get wrong.
+Set `Secure` for HTTPS, including TLS terminated by a reverse proxy. The
+original loopback-only exception for plain HTTP prevented browser sessions on
+HTTP LAN hosts. See the [current cookie policy](../user-management.md#signing-in).
 
 ### Default admin password
 
