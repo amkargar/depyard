@@ -58,7 +58,7 @@ cd depyard
 docker compose up --build
 ```
 
-Sign in as `admin` with the password printed by the installer, or read the generated password once from the backend log on a manual install. Change it right away under **My Account → Profile**. New registries are seeded disabled, so enable the ones you need under **Admin → Registries**.
+Sign in as `admin` with the password printed by the installer, or read the generated password once from the backend log on a manual install. Change it under **My Account → Profile**, **Admin → Settings**, or by editing `ADMIN_PASSWORD` in `.env` and running `bash install.sh --reload-env`. New registries are seeded disabled, so enable the ones you need under **Admin → Registries**.
 
 ## Connect your tools
 

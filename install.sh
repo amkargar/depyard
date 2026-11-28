@@ -36,6 +36,7 @@ INSTALLED_VERSION=''
 UNINSTALL=0
 PURGE=0
 ASSUME_YES=0
+RELOAD_ENV=0
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   BOLD=$'\033[1m'; BLUE=$'\033[34m'; GREEN=$'\033[32m'
@@ -66,6 +67,8 @@ Options:
                          or to the optional version tag.
   --uninstall            Stop and remove containers; keep .env and data volumes.
   --purge                With --uninstall, also delete .env and data volumes.
+  --reload-env           Recreate containers from the existing .env without rewriting
+                         it. Use after editing ADMIN_PASSWORD or other settings.
   --yes                  Skip the --purge confirmation (for automation).
   -h, --help             Show this help.
 
@@ -103,6 +106,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
+    --reload-env|--reload) RELOAD_ENV=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument '$1' (try --help)" ;;
@@ -114,6 +118,9 @@ if [[ "$PURGE" -eq 1 && "$UNINSTALL" -eq 0 ]]; then
 fi
 if [[ "$UPGRADE" -eq 1 && "$UNINSTALL" -eq 1 ]]; then
   fail "--upgrade and --uninstall are mutually exclusive"
+fi
+if [[ "$RELOAD_ENV" -eq 1 && "$UNINSTALL" -eq 1 ]]; then
+  fail "--reload-env and --uninstall are mutually exclusive"
 fi
 
 [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || fail "HTTP_PORT must be a number, got '$HTTP_PORT'"
@@ -328,6 +335,19 @@ if [[ -n "$ADMIN_PASSWORD" ]] && [[ ${#ADMIN_PASSWORD} -lt 12 ]]; then
   fail "stored ADMIN_PASSWORD is shorter than 12 characters; set a new one before re-running"
 fi
 
+if [[ "$RELOAD_ENV" -eq 1 ]]; then
+  [[ -f "$ENV_FILE" ]] || fail "no .env at $ENV_FILE; run the installer once before --reload-env"
+  [[ -f "$COMPOSE_FILE" ]] || fail "no Compose file at $COMPOSE_FILE; run the installer once before --reload-env"
+  [[ "$FRESH" -eq 0 ]] || fail "no existing installation found in $INSTALL_DIR"
+  info "Reloading $ENV_FILE into running containers (file is not rewritten)"
+  compose up -d --force-recreate --wait
+  ok "Containers recreated from $ENV_FILE"
+  printf '\\n  Web UI:  %s\\n' "$web_url"
+  printf '  Config:  %s\\n\\n' "$ENV_FILE"
+  printf '  ADMIN_PASSWORD from .env is applied on backend startup when it differs from the current administrator password.\\n\\n'
+  exit 0
+fi
+
 if [[ "$MODE" == "offline" && "$VERSION" == "latest" ]]; then
   fail "offline installs need an explicit version: bash install.sh --offline --version vX.Y.Z"
 fi
@@ -495,7 +515,7 @@ print_ready() {
   printf '  %-11s %s\n' 'Config:' "$ENV_FILE"
   printf '\n'
   printf 'Next steps:\n'
-  printf '  1. Sign in and change your password: My Account -> Profile\n'
+  printf '  1. Sign in and change your password (Profile), or set ADMIN_PASSWORD in .env and run: bash install.sh --reload-env\n'
   printf '  2. Enable the registries you need: Admin -> Registries\n'
   printf '     (The first-install registry catalogue is disabled by default.)\n'
   if [[ "$PASSWORD_SOURCE" == "generated" ]]; then

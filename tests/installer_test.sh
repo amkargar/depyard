@@ -167,6 +167,19 @@ grep -q 'down --volumes --remove-orphans' "$DOCKER_LOG"
 [[ ! -e "$uninstall_dir/.depyard-state" ]]
 check 'purge removes config and volumes'
 
+# --reload-env recreates containers from the existing .env without rewriting it.
+reload_dir="$WORK/reload"
+run_installer "$reload_dir" --version v1.4.0 >/dev/null
+printf '\n# operator note\nADMIN_PASSWORD=operator-set-password-xyz\n' >> "$reload_dir/.env"
+cp "$reload_dir/.env" "$WORK/reload.env"
+: > "$DOCKER_LOG"
+out="$(run_installer "$reload_dir" --reload-env)"
+[[ "$out" == *'Reloading'* ]]
+[[ "$out" == *'force-recreate'* || "$(cat "$DOCKER_LOG")" == *'force-recreate'* ]]
+diff -q "$WORK/reload.env" "$reload_dir/.env" >/dev/null
+grep -q 'ADMIN_PASSWORD=operator-set-password-xyz' "$reload_dir/.env"
+check 'reload-env preserves .env and recreates containers'
+
 # --purge without --uninstall is rejected.
 if run_installer "$uninstall_dir" --version v1.4.0 --purge >"$WORK/purge.out" 2>&1; then
   echo '--purge without --uninstall unexpectedly succeeded' >&2
