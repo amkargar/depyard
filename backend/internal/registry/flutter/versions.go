@@ -126,27 +126,56 @@ func (r *FlutterRegistry) releasesBaseURL() string {
 
 // fetchReleasesManifest downloads and decodes an upstream releases_<platform>.json manifest using
 // the shared upstream client with per-registry auth / proxy / TLS / timeout settings applied.
-func (r *FlutterRegistry) fetchReleasesManifest(ctx context.Context, platform string) (*flutterReleasesManifest, error) {
-	cleanPath := "flutter_infra_release/releases/releases_" + platform + ".json"
-	rec, _, err := r.fetchAndCacheFromUpstream(ctx, cleanPath, true)
-	if err != nil {
-		cached, cerr := r.store.GetArtifact(ctx, r.inst.ID, cleanPath)
-		if cerr != nil || cached == nil {
-			return nil, err
-		}
-		rec = cached
-	}
+func (r *FlutterRegistry) decodeCachedManifest(ctx context.Context, rec *ArtifactRecord, platform string) (*flutterReleasesManifest, error) {
 	if rec == nil || r.deps.Storage == nil {
-		return nil, fmt.Errorf("release manifest %s is unavailable", cleanPath)
+		return nil, fmt.Errorf("release manifest is unavailable")
 	}
-	f, _, openErr := r.deps.Storage.OpenArtifact(ctx, r.inst.ID, rec.Path)
-	if openErr != nil {
-		return nil, openErr
+	f, _, err := r.deps.Storage.OpenArtifact(ctx, r.inst.ID, rec.Path)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
-	raw, readErr := io.ReadAll(io.LimitReader(f, 32*1024*1024))
-	if readErr != nil {
-		return nil, fmt.Errorf("read releases_%s.json: %w", platform, readErr)
+	raw, err := io.ReadAll(io.LimitReader(f, 32*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read releases_%s.json: %w", platform, err)
+	}
+	var manifest flutterReleasesManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("decode releases_%s.json: %w", platform, err)
+	}
+	return &manifest, nil
+}
+
+func (r *FlutterRegistry) fetchReleasesManifest(ctx context.Context, platform string) (*flutterReleasesManifest, error) {
+	cleanPath := "flutter_infra_release/releases/releases_" + platform + ".json"
+	cached, cacheErr := r.store.GetArtifact(ctx, r.inst.ID, cleanPath)
+	haveCache := cacheErr == nil && cached != nil
+
+	// Always hit releases_base_url first: cached objects may have been stored
+	// from the category upstream, which can serve a different catalogue.
+	upstreamURL := r.releasesBaseURL() + "/releases_" + platform + ".json"
+	opts := r.inst.UpstreamRequestOptions(nil, r.upstreamTimeout())
+	resp, err := r.deps.Upstream.GetWithOptions(ctx, upstreamURL, opts)
+	if err != nil {
+		if haveCache {
+			if man, decErr := r.decodeCachedManifest(ctx, cached, platform); decErr == nil {
+				return man, nil
+			}
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		if haveCache {
+			if man, decErr := r.decodeCachedManifest(ctx, cached, platform); decErr == nil {
+				return man, nil
+			}
+		}
+		return nil, fmt.Errorf("upstream %s returned HTTP %d", upstreamURL, resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read releases_%s.json: %w", platform, err)
 	}
 	var manifest flutterReleasesManifest
 	if err := json.Unmarshal(raw, &manifest); err != nil {
