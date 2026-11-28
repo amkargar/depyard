@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Layers,
   RefreshCw,
+  KeyRound,
 } from 'lucide-vue-next'
 import type {
   PlatformSettings,
@@ -263,7 +264,61 @@ function formatApplyValue(v: unknown): string {
   return String(v)
 }
 
-onMounted(loadSettings)
+const passwordForm = reactive({
+  current_password: '',
+  new_password: '',
+  confirm_password: '',
+})
+const savingPassword = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref('')
+const minPasswordLength = ref(12)
+
+async function loadPasswordPolicy() {
+  try {
+    const profile = await apiFetch<{ min_password_length: number }>('/api/admin/profile')
+    if (profile?.min_password_length) minPasswordLength.value = profile.min_password_length
+  } catch {
+    /* keep default */
+  }
+}
+
+async function changeAdminPassword() {
+  passwordError.value = ''
+  passwordSuccess.value = ''
+  if (passwordForm.new_password !== passwordForm.confirm_password) {
+    passwordError.value = 'The new passwords do not match.'
+    return
+  }
+  if (passwordForm.new_password.length < minPasswordLength.value) {
+    passwordError.value = `The new password must be at least ${minPasswordLength.value} characters.`
+    return
+  }
+  savingPassword.value = true
+  try {
+    await apiFetch('/api/admin/profile/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      }),
+    })
+    passwordSuccess.value =
+      'Administrator password changed. Other sessions and personal tokens were revoked — sign in again with the new password.'
+    passwordForm.current_password = ''
+    passwordForm.new_password = ''
+    passwordForm.confirm_password = ''
+  } catch (err: any) {
+    passwordError.value = err?.message || 'Failed to change the administrator password'
+  } finally {
+    savingPassword.value = false
+  }
+}
+
+onMounted(() => {
+  loadSettings()
+  loadPasswordPolicy()
+})
 </script>
 
 <template>
@@ -284,6 +339,40 @@ onMounted(loadSettings)
     >
       {{ savedMsg }}
     </div>
+
+    <UiCard class="p-6 space-y-5">
+      <div class="flex items-center gap-2 border-b pb-3">
+        <KeyRound class="h-4 w-4 text-primary" />
+        <div>
+          <h2 class="text-sm font-semibold">Administrator password</h2>
+          <p class="text-xs text-muted-foreground">
+            Change the password for the signed-in administrator. This also works for the bootstrap
+            <code class="font-mono">admin</code> account created by the installer.
+          </p>
+        </div>
+      </div>
+      <SharedErrorBanner :message="passwordError" />
+      <p v-if="passwordSuccess" class="text-sm text-emerald-700">{{ passwordSuccess }}</p>
+      <form class="grid gap-4 sm:grid-cols-2" @submit.prevent="changeAdminPassword">
+        <div class="space-y-1.5 sm:col-span-2">
+          <label class="text-xs font-medium">Current password</label>
+          <UiInput v-model="passwordForm.current_password" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium">New password (min {{ minPasswordLength }} characters)</label>
+          <UiInput v-model="passwordForm.new_password" type="password" autocomplete="new-password" required />
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium">Confirm new password</label>
+          <UiInput v-model="passwordForm.confirm_password" type="password" autocomplete="new-password" required />
+        </div>
+        <div class="sm:col-span-2">
+          <UiButton type="submit" size="sm" :disabled="savingPassword">
+            {{ savingPassword ? 'Updating...' : 'Change administrator password' }}
+          </UiButton>
+        </div>
+      </form>
+    </UiCard>
 
     <form class="space-y-6" @submit.prevent="handleSave">
       <!-- General & Routing Compatibility -->

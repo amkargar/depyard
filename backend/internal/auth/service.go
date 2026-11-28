@@ -324,6 +324,47 @@ func (s *Service) ChangePassword(ctx context.Context, id, currentPassword, newPa
 	return u, nil
 }
 
+// ApplyConfiguredPassword updates the named administrator to match ADMIN_PASSWORD
+// from the environment. It is a no-op when the password is empty, too short
+// (leftover values from older Compose files), already matches, or the account
+// is not an administrator. Sessions and personal tokens are revoked when the
+// password actually changes so operators can rotate credentials from .env.
+func (s *Service) ApplyConfiguredPassword(ctx context.Context, username, password string) (bool, error) {
+	password = strings.TrimSpace(password)
+	username = strings.TrimSpace(username)
+	if password == "" || username == "" {
+		return false, nil
+	}
+	if err := s.validatePassword(password); err != nil {
+		return false, nil
+	}
+	u, err := s.store.GetUserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if u.Role != RoleAdmin || u.Disabled {
+		return false, nil
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil {
+		return false, nil
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return false, err
+	}
+	u.PasswordHash = string(hash)
+	u.UpdatedAt = time.Now().UTC()
+	if err := s.store.UpdateUser(ctx, u); err != nil {
+		return false, err
+	}
+	_ = s.store.DeleteSessionsByUser(ctx, u.ID)
+	_ = s.store.RevokeTokensByUser(ctx, u.ID)
+	return true, nil
+}
+
 // validatePassword enforces the password policy.
 func (s *Service) validatePassword(password string) error {
 	if len(password) < s.MinPasswordLength() {

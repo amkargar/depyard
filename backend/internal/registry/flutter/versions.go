@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -126,18 +127,29 @@ func (r *FlutterRegistry) releasesBaseURL() string {
 // fetchReleasesManifest downloads and decodes an upstream releases_<platform>.json manifest using
 // the shared upstream client with per-registry auth / proxy / TLS / timeout settings applied.
 func (r *FlutterRegistry) fetchReleasesManifest(ctx context.Context, platform string) (*flutterReleasesManifest, error) {
-	upstreamURL := r.releasesBaseURL() + "/releases_" + platform + ".json"
-	opts := r.inst.UpstreamRequestOptions(nil, r.upstreamTimeout())
-	resp, err := r.deps.Upstream.GetWithOptions(ctx, upstreamURL, opts)
+	cleanPath := "flutter_infra_release/releases/releases_" + platform + ".json"
+	rec, _, err := r.fetchAndCacheFromUpstream(ctx, cleanPath, true)
 	if err != nil {
-		return nil, err
+		cached, cerr := r.store.GetArtifact(ctx, r.inst.ID, cleanPath)
+		if cerr != nil || cached == nil {
+			return nil, err
+		}
+		rec = cached
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("upstream %s returned HTTP %d", upstreamURL, resp.StatusCode)
+	if rec == nil || r.deps.Storage == nil {
+		return nil, fmt.Errorf("release manifest %s is unavailable", cleanPath)
+	}
+	f, _, openErr := r.deps.Storage.OpenArtifact(ctx, r.inst.ID, rec.Path)
+	if openErr != nil {
+		return nil, openErr
+	}
+	defer f.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(f, 32*1024*1024))
+	if readErr != nil {
+		return nil, fmt.Errorf("read releases_%s.json: %w", platform, readErr)
 	}
 	var manifest flutterReleasesManifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return nil, fmt.Errorf("decode releases_%s.json: %w", platform, err)
 	}
 	return &manifest, nil
@@ -273,11 +285,13 @@ func (r *FlutterRegistry) buildVersionRegistry(ctx context.Context, mirrorBaseUR
 		}
 	}
 
-	if fetched == 0 {
-		return nil, errVersionRegistryUnavailable
-	}
-
 	out.Storage = r.storageChannels(mirrorBaseURL)
+	if fetched == 0 {
+		if len(out.Warnings) == 0 {
+			out.Warnings = append(out.Warnings, errVersionRegistryUnavailable.Error())
+		}
+		return out, nil
+	}
 
 	list := make([]FlutterVersion, 0, len(versions))
 	for _, entry := range versions {
@@ -298,7 +312,10 @@ func (r *FlutterRegistry) buildVersionRegistry(ctx context.Context, mirrorBaseUR
 	}
 
 	if len(list) == 0 {
-		return nil, errVersionRegistryUnavailable
+		if len(out.Warnings) == 0 {
+			out.Warnings = append(out.Warnings, errVersionRegistryUnavailable.Error())
+		}
+		return out, nil
 	}
 
 	sort.SliceStable(list, func(i, j int) bool {

@@ -353,7 +353,17 @@ func TestVersionRegistryUnavailableUpstream(t *testing.T) {
 	req = req.WithContext(registry.WithBaseURL(req.Context(), "https://mirror.example.com/r/fl-down"))
 	rec := httptest.NewRecorder()
 	flReg.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 when upstream manifests are unreachable, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with warnings when upstream manifests are unreachable, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var snapshot flutter.VersionRegistry
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode empty version registry: %v", err)
+	}
+	if snapshot.TotalVersions != 0 {
+		t.Fatalf("expected no versions when upstream is down, got %d", snapshot.TotalVersions)
+	}
+	if len(snapshot.Warnings) == 0 {
+		t.Fatal("expected warnings describing the upstream failure")
 	}
 }

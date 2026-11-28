@@ -171,6 +171,17 @@ func main() {
 				"password", adminPassword,
 				"note", "this password is shown only once - store it now and change it after signing in")
 		}
+	} else if cfg.AdminPassword != "" {
+		applied, applyErr := authSvc.ApplyConfiguredPassword(ctx, cfg.AdminUsername, cfg.AdminPassword)
+		if applyErr != nil {
+			logger.Error("failed to apply ADMIN_PASSWORD from environment", "error", applyErr)
+			os.Exit(1)
+		}
+		if applied {
+			logger.Info("applied ADMIN_PASSWORD from environment to administrator",
+				"username", cfg.AdminUsername,
+				"note", "other sessions and personal tokens for this account were revoked")
+		}
 	}
 
 	// Composition root: register compiled registry types.

@@ -742,3 +742,50 @@ func TestBootstrapIsSkippedOnUpgradeWithAStalePassword(t *testing.T) {
 		t.Errorf("the existing administrator password must still work: %v", err)
 	}
 }
+
+func TestApplyConfiguredPasswordRotatesTheAdministrator(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := context.Background()
+
+	if _, err := svc.EnsureBootstrapAdmin(ctx, "admin", "admin@example.com", testPassword); err != nil {
+		t.Fatalf("first boot: %v", err)
+	}
+	_, session, _, err := svc.Login(ctx, "admin", testPassword, "test", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	applied, err := svc.ApplyConfiguredPassword(ctx, "admin", "env-rotated-password")
+	if err != nil {
+		t.Fatalf("ApplyConfiguredPassword: %v", err)
+	}
+	if !applied {
+		t.Fatal("expected the environment password to be applied")
+	}
+
+	if _, err := svc.AuthenticateRequest(ctx, bearerRequest(session)); err == nil {
+		t.Fatal("expected sessions to be revoked after an env password rotation")
+	}
+	if _, _, _, err := svc.Login(ctx, "admin", testPassword, "test", "127.0.0.1"); err == nil {
+		t.Fatal("expected the previous password to stop working")
+	}
+	if _, _, _, err := svc.Login(ctx, "admin", "env-rotated-password", "test", "127.0.0.1"); err != nil {
+		t.Fatalf("expected the .env password to work: %v", err)
+	}
+
+	applied, err = svc.ApplyConfiguredPassword(ctx, "admin", "env-rotated-password")
+	if err != nil {
+		t.Fatalf("idempotent apply: %v", err)
+	}
+	if applied {
+		t.Fatal("applying the same password again must be a no-op")
+	}
+
+	applied, err = svc.ApplyConfiguredPassword(ctx, "admin", "short")
+	if err != nil {
+		t.Fatalf("short leftover password: %v", err)
+	}
+	if applied {
+		t.Fatal("a password below the policy minimum must not overwrite the administrator")
+	}
+}

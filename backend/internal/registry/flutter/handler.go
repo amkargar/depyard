@@ -95,6 +95,7 @@ func (r *FlutterRegistry) handleListArtifactsAPI(w http.ResponseWriter, req *htt
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"items":                 items,
+		"artifacts":             items,
 		"total":                 total,
 		"page":                  page,
 		"limit":                 limit,
