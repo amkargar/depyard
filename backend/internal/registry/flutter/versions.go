@@ -150,14 +150,9 @@ func (r *FlutterRegistry) fetchReleasesManifest(ctx context.Context, platform st
 	cleanPath := "flutter_infra_release/releases/releases_" + platform + ".json"
 	cached, cacheErr := r.store.GetArtifact(ctx, r.inst.ID, cleanPath)
 	haveCache := cacheErr == nil && cached != nil
-	if haveCache && (cached.ExpiresAt == nil || time.Now().UTC().Before(*cached.ExpiresAt)) {
-		if man, err := r.decodeCachedManifest(ctx, cached, platform); err == nil {
-			return man, nil
-		}
-	}
 
-	// releases_base_url is a dedicated manifest origin and may not share the
-	// category upstream host (or even the /flutter_infra_release/... prefix).
+	// Always hit releases_base_url first: cached objects may have been stored
+	// from the category upstream, which can serve a different catalogue.
 	upstreamURL := r.releasesBaseURL() + "/releases_" + platform + ".json"
 	opts := r.inst.UpstreamRequestOptions(nil, r.upstreamTimeout())
 	resp, err := r.deps.Upstream.GetWithOptions(ctx, upstreamURL, opts)
